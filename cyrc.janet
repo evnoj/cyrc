@@ -92,6 +92,16 @@
   (tuple/slice arrtup 0 (- (length arrtup) n))
 )
 
+(defn set-title
+  [title]
+  (param/set (pane/current) :title title)
+)
+
+(defn get-title
+  []
+  (param/get :title :target (pane/current))
+)
+
 (defn stack-bar-title
   [dimensions node]
   # follow the child down to the pane tracking how many levels deep it goes
@@ -100,13 +110,24 @@
   # get that pane's title param if it exists, or the terminal title if it doesn't
 
   (var child node)
+  (var i 0)
 
   (while (not= (get child :type) :pane)
     (set child (get child :node))
+    (set i (+ i 1))
   )
+  # subtract 1 from index for the border node around the pane
+  # (set i (- i 1))
 
-  (def stack-id (param/get :stack))
-  (string stack-id)
+  (def stack-id (param/get :stack :target (get child :id)))
+  (def stacks (param/get :stacks :target :client))
+  (def stack (get stacks stack-id))
+  (def pane (get (get stack :panes) i))
+  # (string pane)
+  (def title (param/get :title :target pane))
+  (default title "no title")
+  (string "stack: " stack-id " pane: " pane " title: " title)
+  # (string stack-id)
 )
 
 (defn render-stack
@@ -118,7 +139,7 @@
     :type :margins
     :custom :custom-value
     :node (do
-      (var stack (new-bordered-pane (panes 1) attach))
+      (var stack (new-bordered-pane (get panes 0) attach))
       (if (<= (length panes) 1) (break stack))
 
       (for i 1 (length panes)
@@ -146,14 +167,16 @@
   (var stack-id (param/get :stack))
 
   (if stack-id (do
+    (msg/log :info "adding to stack")
     (def stack (get stacks stack-id))
     (def panes (get stack :panes))
     # (def stack-path (get stack :path))
     # (set (stack :panes) @[(shell/new) ;panes])
-    (array/insert panes 0 (shell/new))
+    (array/insert panes 0 new-pane)
     (param/set new-pane :stack stack-id)
     (layout/set (layout/assoc layout (get stack :path) (render-stack panes true)))
   ) (do
+    (msg/log :info "new stack")
     (set stack-id (new-stack-id))
     (def panes @[new-pane current-pane])
     # the pane has a border around it, the path to that is what we'll replace
