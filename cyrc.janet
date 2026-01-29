@@ -43,22 +43,35 @@
   }
 )
 
+(defn pane-border-title
+  [dimensions node]
+
+  (def pane (get node :id))
+  (def title (param/get :title :target pane))
+  (default title (cmd/title pane))
+  (style/text (string " " title " ") :bg "#1F1F28" :bold true)
+)
+
 (defn new-bordered-pane
   "Create a pane with a border. Takes the NodeID that should be in the pane."
-  [node &opt attached]
+  [node &opt &named attach title]
 
-  (default attached false)
+  (default attach false)
+  (if title
+    (param/set node :title title)
+  )
 
   {
     :type :borders
-    :title (style/text " sample title  " :bg "#1F1F28" :bold true)
+    # :title (style/text " sample title  " :bg "#1F1F28" :bold true)
+    :title pane-border-title
     :border :rounded
     :border-fg "#b8b4d0"
     :border-bg "#b8b4d0"
     :node {
       :type :pane
       :id node
-      :attached attached
+      :attached attach
     }
   }
 )
@@ -117,17 +130,17 @@
     (set i (+ i 1))
   )
   # subtract 1 from index for the border node around the pane
+  # not sure why I don't need this actually
   # (set i (- i 1))
 
   (def stack-id (param/get :stack :target (get child :id)))
   (def stacks (param/get :stacks :target :client))
   (def stack (get stacks stack-id))
   (def pane (get (get stack :panes) i))
-  # (string pane)
   (def title (param/get :title :target pane))
-  (default title "no title")
-  (string "stack: " stack-id " pane: " pane " title: " title)
-  # (string stack-id)
+  (default title (cmd/title pane))
+  # (string "stack: " stack-id " pane: " pane " title: " title)
+  (style/text (string "╭ " title) :bold true)
 )
 
 (defn render-stack
@@ -139,7 +152,7 @@
     :type :margins
     :custom :custom-value
     :node (do
-      (var stack (new-bordered-pane (get panes 0) attach))
+      (var stack (new-bordered-pane (get panes 0) :attach attach))
       (if (<= (length panes) 1) (break stack))
 
       (for i 1 (length panes)
@@ -156,7 +169,7 @@
 )
 
 (key/action
-  action/stack-pane
+  action/add-stacked-pane
   "add a stacked pane"
 
   (def layout (layout/get))
@@ -170,8 +183,6 @@
     (msg/log :info "adding to stack")
     (def stack (get stacks stack-id))
     (def panes (get stack :panes))
-    # (def stack-path (get stack :path))
-    # (set (stack :panes) @[(shell/new) ;panes])
     (array/insert panes 0 new-pane)
     (param/set new-pane :stack stack-id)
     (layout/set (layout/assoc layout (get stack :path) (render-stack panes true)))
@@ -190,6 +201,61 @@
     (param/set new-pane :stack stack-id)
     (layout/set (layout/assoc layout stack-path (render-stack panes true)))
   ))
+)
+
+(defn remove-stacked-pane
+  [pane &opt &named kill]
+
+  (def stacks (get-stack))
+  (def stack-id (param/get :stack :target pane))
+  (def stack (get stacks stack-id))
+  (def panes (get stack :panes))
+  (def stack-path (get stack :path))
+  (var new-node nil)
+
+  (array/remove panes 0)
+
+  (if (= (length panes) 1)
+    (do
+      (def last-pane (get panes 0))
+      (set (stacks stack-id) nil)
+      (param/set last-pane :stack nil)
+      (set new-node (new-bordered-pane last-pane :attach true))
+    ) (do
+      (set new-node (render-stack panes true))
+    )
+  )
+
+  (layout/set (layout/assoc (layout/get) stack-path new-node))
+  (param/set pane :stack nil)
+  (if (not (nil? kill)) (tree/rm pane))
+)
+
+(key/action
+  action/kill-layout-pane
+  "Remove the current pane from the layout and the node tree."
+  (def layout (layout/get))
+  (def {:id id} (layout/path layout (layout/attach-path layout)))
+
+  (if (param/get :stack :target id)
+    (remove-stacked-pane id :kill true)
+    (do
+      (layout/set (layout/remove-attached layout))
+      (if (not (nil? id)) (tree/rm id))
+    )
+  )
+)
+
+(key/action
+  action/remove-layout-pane
+  "Remove the current pane from the layout."
+  (def layout (layout/get))
+  (def {:id id} (layout/path layout (layout/attach-path layout)))
+
+  (if (param/get :stack :target id)
+    (remove-stacked-pane id)
+    (layout/set (layout/remove-attached layout))
+  )
 )
 
 (key/action
@@ -267,7 +333,7 @@
       (,layout/set
         (,transformer
           (,layout/get)
-          (,new-bordered-pane shell true)
+          (,new-bordered-pane shell :attach true)
           # {:type :pane :id shell :attached true}))))
         )
       )
@@ -371,9 +437,8 @@
             :type :split
             :vertical false
             :border :none
-            # :a (render-stack [(shell/new) (shell/new)])
-            :a (new-bordered-pane (shell/new) true)
-            :b (new-bordered-pane (get-logs-pane))
+            :a (new-bordered-pane (shell/new) :attach true)
+            :b (new-bordered-pane (get-logs-pane) :title "  log")
           }
         }
         {
@@ -487,14 +552,19 @@
 (key/bind :root ["ctrl+alt+k"] action/move-up)
 (key/bind :root ["ctrl+alt+l"] action/custom-move-right)
 
-(key/bind :root ["ctrl+alt+d"] action/kill-layout-pane)
+(key/bind :root ["ctrl+alt+n"] action/add-stacked-pane)
+
+(key/bind :root ["ctrl+alt+d"] action/remove-layout-pane)
+(key/bind :root ["ctrl+alt+x"] action/kill-layout-pane)
 
 # for intial compatibility while I transition from zellij
 (key/bind :root ["f1"] action/custom-move-left)
 (key/bind :root ["f2"] action/move-down)
 (key/bind :root ["f3"] action/move-up)
 (key/bind :root ["f4"] action/custom-move-right)
-(key/bind :root ["f7"] action/kill-layout-pane)
+(key/bind :root ["f7"] action/remove-layout-pane)
+(key/bind :root ["ctrl+7"] action/kill-layout-pane)
+(key/bind :root ["f5"] action/add-stacked-pane)
 
 (key/action
   action/init-client
