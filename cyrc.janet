@@ -92,6 +92,23 @@
   (tuple/slice arrtup 0 (- (length arrtup) n))
 )
 
+(defn stack-bar-title
+  [dimensions node]
+  # follow the child down to the pane tracking how many levels deep it goes
+  # using the panes id get the stack id param
+  # get the pane id that the bar corresponds to
+  # get that pane's title param if it exists, or the terminal title if it doesn't
+
+  (var child node)
+
+  (while (not= (get child :type) :pane)
+    (set child (get child :node))
+  )
+
+  (def stack-id (param/get :stack))
+  (string stack-id)
+)
+
 (defn render-stack
   "Creates and returns a margin layout node that contains other layout nodes that represent a stack of panes. Takes a list of the node IDs of the panes in the stack. 0th element is the front of the stack, going backwards (up) from there."
   [panes &opt attach]
@@ -107,7 +124,8 @@
       (for i 1 (length panes)
         (set stack {
           :type :bar
-          :text (style/text (string "╭ " "placeholder") :bold true)
+          # :text (style/text (string "╭ " "placeholder") :bold true)
+          :text stack-bar-title
           :node stack
         })
       )
@@ -122,6 +140,7 @@
 
   (def layout (layout/get))
   (def current-pane (layout/attach-id layout))
+  (def new-pane (shell/new))
   (def current-path (layout/attach-path layout))
   (def stacks (get-stack))
   (var stack-id (param/get :stack))
@@ -132,10 +151,11 @@
     # (def stack-path (get stack :path))
     # (set (stack :panes) @[(shell/new) ;panes])
     (array/insert panes 0 (shell/new))
+    (param/set new-pane :stack stack-id)
     (layout/set (layout/assoc layout (get stack :path) (render-stack panes true)))
   ) (do
     (set stack-id (new-stack-id))
-    (def panes @[(shell/new) current-pane])
+    (def panes @[new-pane current-pane])
     # the pane has a border around it, the path to that is what we'll replace
     (def stack-path (trim current-path))
     (def stack {
@@ -143,6 +163,8 @@
       :panes panes
     })
     (set (stacks stack-id) stack)
+    (param/set current-pane :stack stack-id)
+    (param/set new-pane :stack stack-id)
     (layout/set (layout/assoc layout stack-path (render-stack panes true)))
   ))
 )
@@ -312,10 +334,8 @@
   )
 )
 
-(key/action
-  action/log-layout
-
-  "log layout"
+(defn set-test-layout
+  []
 
   (layout/set
     {
@@ -328,8 +348,9 @@
             :type :split
             :vertical false
             :border :none
-            :a (render-stack [(shell/new) (shell/new)])
-            :b (new-bordered-pane (get-logs-pane) true)
+            # :a (render-stack [(shell/new) (shell/new)])
+            :a (new-bordered-pane (shell/new) true)
+            :b (new-bordered-pane (get-logs-pane))
           }
         }
         {
@@ -339,6 +360,37 @@
       ]
     }
   )
+)
+
+(key/action
+  action/log-layout
+
+  "log layout"
+
+  (set-test-layout)
+  # (layout/set
+  #   {
+  #     :type :tabs
+  #     :tabs @[
+  #       {
+  #         :name "taab 1"
+  #         :active true
+  #         :node {
+  #           :type :split
+  #           :vertical false
+  #           :border :none
+  #           # :a (render-stack [(shell/new) (shell/new)])
+  #           :a (new-bordered-pane (shell/new) true)
+  #           :b (new-bordered-pane (get-logs-pane))
+  #         }
+  #       }
+  #       {
+  #         :name "tab 2"
+  #         :node (new-bordered-pane (shell/new))
+  #       }
+  #     ]
+  #   }
+  # )
 )
 
 (key/action
@@ -426,4 +478,5 @@
   "should be run when a client initializes"
 
   (param/set :client :stacks @{})
+  (set-test-layout)
 )
