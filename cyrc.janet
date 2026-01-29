@@ -115,6 +115,13 @@
   (param/get :title :target (pane/current))
 )
 
+(defn render-pane-title
+  [pane]
+  (def title (param/get :title :target pane))
+  (default title (cmd/title pane))
+  (style/text (string "╭ " title) :bold true)
+)
+
 (defn stack-bar-title
   [dimensions node]
   # follow the child down to the pane tracking how many levels deep it goes
@@ -137,13 +144,14 @@
   (def stacks (param/get :stacks :target :client))
   (def stack (get stacks stack-id))
   (def pane (get (get stack :panes) i))
-  (def title (param/get :title :target pane))
-  (default title (cmd/title pane))
+  # (def title (param/get :title :target pane))
+  # (default title (cmd/title pane))
   # (string "stack: " stack-id " pane: " pane " title: " title)
-  (style/text (string "╭ " title) :bold true)
+  # (style/text (string "╭ " title) :bold true)
+  (render-pane-title pane)
 )
 
-(defn render-stack
+(defn create-stack-node
   "Creates and returns a margin layout node that contains other layout nodes that represent a stack of panes. Takes a list of the node IDs of the panes in the stack. 0th element is the front of the stack, going backwards (up) from there."
   [panes &opt attach]
 
@@ -159,13 +167,23 @@
         (set stack {
           :type :bar
           # :text (style/text (string "╭ " "placeholder") :bold true)
-          :text stack-bar-title
+          # :text stack-bar-title
+          :text (render-pane-title (get panes i))
           :node stack
         })
       )
       stack
     )
   }
+)
+
+(defn render-stack
+  "Takes a layout and a stack table, and returns the layout modified so the path at (stack :path) contains the created stack node hierarchy"
+  [layout stack &opt &named attach]
+  (default attach false)
+
+  (def stack-node (create-stack-node (get stack :panes) attach))
+  (layout/assoc layout (get stack :path) stack-node)
 )
 
 (key/action
@@ -185,7 +203,7 @@
     (def panes (get stack :panes))
     (array/insert panes 0 new-pane)
     (param/set new-pane :stack stack-id)
-    (layout/set (layout/assoc layout (get stack :path) (render-stack panes true)))
+    (layout/set (layout/assoc layout (get stack :path) (create-stack-node panes true)))
   ) (do
     (msg/log :info "new stack")
     (set stack-id (new-stack-id))
@@ -199,8 +217,69 @@
     (set (stacks stack-id) stack)
     (param/set current-pane :stack stack-id)
     (param/set new-pane :stack stack-id)
-    (layout/set (layout/assoc layout stack-path (render-stack panes true)))
+    (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
   ))
+)
+
+(key/action
+  action/shift-stack-forward
+  "shift the current stack forward"
+
+  (def layout (layout/get))
+  (def pane (layout/attach-id layout))
+  (def stack-id (param/get :stack :target pane))
+  (if (nil? stack-id) (break))
+  (def stack (get-stack stack-id))
+  (def panes (get stack :panes))
+  (def front-pane (get panes 0))
+  (array/remove panes 0)
+  (array/push panes front-pane)
+  (layout/set (render-stack layout stack :attach true))
+)
+
+(key/action
+  action/reorder-stack-forward
+  "reorder the current stack forward. Like shift-stack-forward, but leaves the front pane at the front. A way to reposition the front pane in the stack ordering."
+
+  (def layout (layout/get))
+  (def pane (layout/attach-id layout))
+  (def stack-id (param/get :stack :target pane))
+  (if (nil? stack-id) (break))
+  (def stack (get-stack stack-id))
+  (def panes (get stack :panes))
+  (def second-front-pane (get panes 1))
+  (array/remove panes 1)
+  (array/push panes second-front-pane)
+  (layout/set (render-stack layout stack :attach true))
+)
+
+(key/action
+  action/shift-stack-backward
+  "shift the current stack backward"
+  (def layout (layout/get))
+  (def pane (layout/attach-id layout))
+  (def stack-id (param/get :stack :target pane))
+  (if (nil? stack-id) (break))
+  (def stack (get-stack stack-id))
+  (def panes (get stack :panes))
+  (def back-pane (array/pop panes))
+  (array/insert panes 0 back-pane)
+  (layout/set (render-stack layout stack :attach true))
+)
+
+(key/action
+  action/reorder-stack-backward
+  "reorder the current stack backward. Like shift-stack-backward, but leaves the front pane at the front. A way to reposition the front pane in the stack ordering."
+
+  (def layout (layout/get))
+  (def pane (layout/attach-id layout))
+  (def stack-id (param/get :stack :target pane))
+  (if (nil? stack-id) (break))
+  (def stack (get-stack stack-id))
+  (def panes (get stack :panes))
+  (def back-pane (array/pop panes))
+  (array/insert panes 1 back-pane)
+  (layout/set (render-stack layout stack :attach true))
 )
 
 (defn remove-stacked-pane
@@ -222,7 +301,7 @@
       (param/set last-pane :stack nil)
       (set new-node (new-bordered-pane last-pane :attach true))
     ) (do
-      (set new-node (render-stack panes true))
+      (set new-node (create-stack-node panes true))
     )
   )
 
@@ -467,7 +546,7 @@
   #           :type :split
   #           :vertical false
   #           :border :none
-  #           # :a (render-stack [(shell/new) (shell/new)])
+  #           # :a (create-stack-node [(shell/new) (shell/new)])
   #           :a (new-bordered-pane (shell/new) true)
   #           :b (new-bordered-pane (get-logs-pane))
   #         }
@@ -552,6 +631,11 @@
 (key/bind :root ["ctrl+alt+k"] action/move-up)
 (key/bind :root ["ctrl+alt+l"] action/custom-move-right)
 
+(key/bind :root ["ctrl+alt+u"] action/shift-stack-backward)
+(key/bind :root ["ctrl+alt+o"] action/shift-stack-forward)
+(key/bind :root ["ctrl+alt+shift+u"] action/reorder-stack-backward)
+(key/bind :root ["ctrl+alt+shift+o"] action/reorder-stack-forward)
+
 (key/bind :root ["ctrl+alt+n"] action/add-stacked-pane)
 
 (key/bind :root ["ctrl+alt+d"] action/remove-layout-pane)
@@ -565,6 +649,8 @@
 (key/bind :root ["f7"] action/remove-layout-pane)
 (key/bind :root ["ctrl+7"] action/kill-layout-pane)
 (key/bind :root ["f5"] action/add-stacked-pane)
+(key/bind :root ["f10"] action/shift-stack-backward)
+(key/bind :root ["f11"] action/shift-stack-forward)
 
 (key/action
   action/init-client

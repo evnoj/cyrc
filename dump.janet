@@ -168,3 +168,15 @@
   # )
 )
 
+(key/action
+  action/layout-mutability-test
+  "layout mutability test"
+
+  (def layout (layout/get))
+  (def attach-path (layout/attach-path layout))
+  (var node (struct/to-table (layout/path layout attach-path)))
+  (set (node :id) 100)
+  (set node (table/to-struct node))
+  (layout/set (layout/assoc layout attach-path node))
+)
+
