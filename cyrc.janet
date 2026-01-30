@@ -76,6 +76,7 @@
   }
 )
 
+# ----- UTILITY FUNCTIONS -----
 (defn array-to-string
   [arr]
   (var str "")
@@ -122,6 +123,38 @@
   (style/text (string "╭ " title) :bold true)
 )
 
+# ----- DEBUGGING ACTIONS -----
+(key/action
+  action/print-path
+  "print the attached node's path"
+
+  (def layout (layout/get))
+  (def current (pane/current))
+  (def parent (tree/parent current))
+  (def attach-path (layout/attach-path layout))
+  (msg/log :info (string
+    # "attach path: " (type (get attach-path 0)) " \n"
+    # "attach path: " (get attach-path 1) " \n"
+    # "current: " (tree/path current) " \n"
+    # "parent: " (tree/path parent) " "
+    (array-to-string attach-path) "\n"
+    (array-types-to-string attach-path) "\n"
+    "path len: " (length attach-path) "\n"
+    "resolved: " (get (layout/path layout attach-path) :id) "\n"
+    # "parent: " (get (layout/path layout (array/slice attach-path 0 (- (length attach-path) 1))) :id) "\n"
+    "parent: " (struct-to-string (layout/path layout (array/slice attach-path 0 (- (length attach-path) 3)))) "\n"
+    "attached id: " (layout/attach-id layout)
+  ))
+)
+
+(key/action
+  action/log-layout
+  "log the current layout"
+
+  (msg/log :info (struct-to-string (layout/get)))
+)
+
+# ----- STACK IMPLEMENTATION -----
 (defn stack-bar-title
   [dimensions node]
   # follow the child down to the pane tracking how many levels deep it goes
@@ -209,7 +242,7 @@
     (set stack-id (new-stack-id))
     (def panes @[new-pane current-pane])
     # the pane has a border around it, the path to that is what we'll replace
-    (def stack-path (trim current-path))
+    (def stack-path @[;(trim current-path)])
     (def stack {
       :path stack-path
       :panes panes
@@ -343,29 +376,6 @@
   # TODO
 )
 
-(key/action
-  action/print-path
-  "print the attached node's path"
-
-  (def layout (layout/get))
-  (def current (pane/current))
-  (def parent (tree/parent current))
-  (def attach-path (layout/attach-path layout))
-  (msg/log :info (string
-    # "attach path: " (type (get attach-path 0)) " \n"
-    # "attach path: " (get attach-path 1) " \n"
-    # "current: " (tree/path current) " \n"
-    # "parent: " (tree/path parent) " "
-    (array-to-string attach-path) "\n"
-    (array-types-to-string attach-path) "\n"
-    "path len: " (length attach-path) "\n"
-    "resolved: " (get (layout/path layout attach-path) :id) "\n"
-    # "parent: " (get (layout/path layout (array/slice attach-path 0 (- (length attach-path) 1))) :id) "\n"
-    "parent: " (struct-to-string (layout/path layout (array/slice attach-path 0 (- (length attach-path) 3)))) "\n"
-    "attached id: " (layout/attach-id layout)
-  ))
-)
-
 (defn
   custom/split-right
   ```Split the currently attached pane into two horizontally, replacing the right pane with the given node.```
@@ -478,6 +488,98 @@
   # )
 )
 
+# ----- MODE IMPLEMENTATION -----
+# entering a mode puts a bar at the top of the screen displaying the mode
+# all keys are unbound and a new set of keybinds is created
+# the original keybinds are restored when exiting the mode
+# in general, ctrl+alt+/ should show the available actions in the mode, and ctrl+alt+q should leave the mode
+# (defn key-conv
+#   "takes a string that represents an element in a keybind sequence. If the string starts with re:, it converts it to the proper format to pass to key/bind and returns the array. Otherwise, returns the same string."
+#   [key]
+#   (if (= "re:" (string/slice key 0 3))
+#     (break [:re (string/slice key 3)])
+#   )
+#   key
+# )
+
+(defn key-conv
+  "takes an array representing a keybind sequence as returned by a func like key/get, and converts it into an array suitable to be passed as the sequence to key/bind"
+  [seq]
+  (map
+    |(
+      (if (and (> (length $) 2) (= "re:" (string/slice $ 0 3)))
+        (break [:re (string/slice $ 3)])
+        (break $)
+      )
+    )
+    seq
+  )
+)
+
+(key/action
+  action/exit-mode
+  "exit the current mode"
+
+  (def restore-bindings (param/get :restore-bindings :client))
+  (if (nil? restore-bindings) (break)) # not in a mode
+  (param/set :client :restore-bindings nil)
+
+  (key/unbind :root [])
+  (each binding restore-bindings
+    # (msg/log :info (string "function: " (get binding :function) " seq: " (array-to-string (get binding :sequence))))
+    (key/bind :root (key-conv (get binding :sequence)) (get binding :function))
+  )
+  (def layout (layout/get))
+  (layout/set (get layout :node))
+
+  # since we change the layout, need to modify the stack paths
+  (def stacks (get-stack))
+  (each stack stacks
+    (array/remove (get stack :path) 0)
+  )
+)
+
+(defn enter-mode
+  "bindings: an arrtup of arrtups, where each nested arrtup has 2 elements: the 1st is the key sequence (also an arrtup), the 2nd the function to call"
+  [name &named exit-binding bindings &opt unbind-existing]
+  (default unbind-existing true)
+
+  (param/set :client :restore-bindings (key/current))
+  (if unbind-existing
+    (key/unbind :root [])
+  )
+  (each binding bindings
+    (key/bind :root ;binding)
+  )
+  (key/bind :root exit-binding action/exit-mode)
+
+  (layout/set {
+    :type :bar
+    :text name
+    :node (layout/get)
+  })
+
+  # since we change the layout, need to modify the stack paths
+  (def stacks (get-stack))
+  (each stack stacks
+    (array/insert (get stack :path) 0 :node)
+  )
+)
+
+(key/action
+  action/test-mode
+  "mode test"
+
+  # (enter-mode "TEST MODE" ["ctrl+alt+q"])
+  (enter-mode "TEST MODE"
+    :exit-binding ["esc"]
+    :bindings [
+      [["n"] action/add-stacked-pane]
+    ]
+    :unbind-existing false
+  )
+)
+
 (key/action
   action/test-layout
   "layout testing"
@@ -529,37 +631,7 @@
   )
 )
 
-(key/action
-  action/log-layout
-
-  "log layout"
-
-  (set-test-layout)
-  # (layout/set
-  #   {
-  #     :type :tabs
-  #     :tabs @[
-  #       {
-  #         :name "taab 1"
-  #         :active true
-  #         :node {
-  #           :type :split
-  #           :vertical false
-  #           :border :none
-  #           # :a (create-stack-node [(shell/new) (shell/new)])
-  #           :a (new-bordered-pane (shell/new) true)
-  #           :b (new-bordered-pane (get-logs-pane))
-  #         }
-  #       }
-  #       {
-  #         :name "tab 2"
-  #         :node (new-bordered-pane (shell/new))
-  #       }
-  #     ]
-  #   }
-  # )
-)
-
+# ----- ACTIONS -----
 (key/action
   action/custom-move-right
   "move right, inc. across tabs"
@@ -618,7 +690,7 @@
   )
 )
 
-# config
+# ----- GENERAL CONFIG -----
 (param/set :root :animate false)
 
 # keybinds
