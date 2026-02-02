@@ -11,12 +11,18 @@
 
 implementation:
 - [x] func that given the list of panes in the stack renders a margin node containing the stack, or if the list is just one pane it renders a bordered pane
-- [ ] func to add a stacked pane
+- [x] func to add a stacked pane
 - [ ] func that given a layout node path returns the path to the margin container from the root of the layout
-- [ ] action to rotate panes in stack fwd/back (bind to u/o)
-- [ ] action to arbitrarily reorder panes, maybe via text editor
+- [x] action to rotate panes in stack fwd/back (bind to u/o)
+- [x] action to arbitrarily reorder panes, maybe via text editor
+  - implemented rotate fwd/back actions that don't affect the pane at the front of the stack, allowing the front pane to be moved anywhere in the stack
+  - would still like a simpler "rearrange a list" style interface
+- [ ] customize the built in actions that alter the layout to check 
 - [ ] custom remove pane action that checks if it is in a stack and re-render it if so
 - [ ] custom split actions that check if in a stack, and if so make the split outside the stack
+
+thoughts:
+- Tracking the path to every pane as a parameter on the client is a pain, because it means every action that modifies the layout needs to check if it's affecting any of these paths. Do I actually need to track the path to every stack? Maybe could just do with the "stack id" parameter on the pane in the front of the stack. Then, to get the path to the stack, just go up until I hit a margin node. Then it's only actions that operate on a specific pane that need to check if that pane represents the front of the stack.
 
 limitations:
 - not supporting nested stacks
