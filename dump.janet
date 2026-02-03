@@ -180,3 +180,33 @@
   (layout/set (layout/assoc layout attach-path node))
 )
 
+# testing using border-fg and border-bg to store arbitrary numbers on a margin node
+(key/action
+  action/set-margin-test-layout
+  "margin test layout"
+
+  (layout/set
+    {
+      :type :split
+      :vertical false
+      :border :none
+      :a {
+        :type :margins
+        :border-bg "garbo\nmore garbo"
+        :node (new-bordered-pane (shell/new) :attach true)
+      }
+      :b (new-bordered-pane (get-logs-pane) :title "  log")
+    }
+  )
+
+  (def layout (layout/get))
+  (as-> (layout/attach-path layout) _
+    (array/slice _ 0 -3)
+    (layout/path layout _)
+    (_ :border-bg)
+    # (msg/log :info (string _))
+    # (type _) # string
+    (msg/log :info _)
+  )
+)
+
