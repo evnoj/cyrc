@@ -528,38 +528,72 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   action/grow-pane
   "grow pane"
 
-  # get NodeID of current pane
-  (def current (pane/current))
-  # get the NodeID of current pane's parent
-  (def parent (tree/parent current))
-  # (msg/log :info (string parent))
-  (msg/log :info (tree/path current))
-  # (def layout (layout/get))
-  
-  # (when (layout/type? :split parent)
-  #   # Get the parent split node from the layout
-  #   (def parent-path (tree/path parent))
-  #   (def parent-node (layout/path layout parent-path))
-    
-  #   # Check which child we are (`:a` or `:b`)
-  #   (def children (group/children parent))
-  #   (def is-first (= current (first children)))
-    
-  #   # Modify the cells, adjusting based on which child we are
-  #   (def current-cells (get parent-node :cells 0))
-  #   (def new-cells
-  #     (if is-first
-  #       (+ current-cells 1)
-  #       (- current-cells 1)
-  #     )
-  #   )
+  (def layout (layout/get))
+  (def attach-path (layout/attach-path layout))
+  (def parent-split-path (layout/find-last layout attach-path |(= ($ :type) :split)))
+  (if (nil? parent-split-path) (break))
+  (def parent-split (layout/path layout parent-split-path))
+  (def attached-a (layout/attached? (parent-split :a)))
 
-  #   # Update the layout with new cell count
-  #   (def new-parent (assoc parent-node :cells 5))
-  #   (def new-layout (layout/assoc layout parent-path new-parent))
-    
-  #   (layout/set new-layout)
-  # )
+  (msg/log :info (string "type: " (parent-split :type) " percent: " (parent-split :percent) ", cells: " (parent-split :cells)))
+  (def new-split (cond
+    (def cells (parent-split :cells)) (do
+      (if attached-a
+        (assoc parent-split :cells (+ cells 1))
+        (assoc parent-split :cells (- cells 1))
+      )
+    )
+    (def percent (parent-split :percent)) (do
+      (if attached-a
+        (assoc parent-split :percent (+ percent 2))
+        (assoc parent-split :percent (- percent 2))
+      )
+    )
+    (do
+      (if attached-a
+        (assoc parent-split :percent 52)
+        (assoc parent-split :percent 48)
+      )
+    )
+  ))
+
+  (layout/set (layout/assoc layout parent-split-path new-split))
+)
+
+(key/action
+  action/shrink-pane
+  "shrink pane"
+
+  (def layout (layout/get))
+  (def attach-path (layout/attach-path layout))
+  (def parent-split-path (layout/find-last layout attach-path |(= ($ :type) :split)))
+  (if (nil? parent-split-path) (break))
+  (def parent-split (layout/path layout parent-split-path))
+  (def attached-a (layout/attached? (parent-split :a)))
+
+  # (msg/log :info (string "type: " (parent-split :type) " percent: " (parent-split :percent) ", cells: " (parent-split :cells)))
+  (def new-split (cond
+    (def cells (parent-split :cells)) (do
+      (if attached-a
+        (assoc parent-split :cells (- cells 1))
+        (assoc parent-split :cells (+ cells 1))
+      )
+    )
+    (def percent (parent-split :percent)) (do
+      (if attached-a
+        (assoc parent-split :percent (- percent 2))
+        (assoc parent-split :percent (+ percent 2))
+      )
+    )
+    (do
+      (if attached-a
+        (assoc parent-split :percent 48)
+        (assoc parent-split :percent 52)
+      )
+    )
+  ))
+
+  (layout/set (layout/assoc layout parent-split-path new-split))
 )
 
 # ----- MODE IMPLEMENTATION -----
