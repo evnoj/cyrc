@@ -1,3 +1,4 @@
+# ----- OVERRIDE BUILTINS -----
 (defn layout/remove-attached
   ```Remove the attached node from the layout, simplifying the nearest ancestor with children.```
   [layout]
@@ -55,7 +56,7 @@
   (layout/assoc layout parent-path new-parent)
 )
 
-# helper functions
+# ----- HELPER FUNCTIONS -----
 (defn get-logs-pane
   "Get the NodeID of the logs pane"
   []
@@ -110,7 +111,6 @@
   }
 )
 
-# ----- UTILITY FUNCTIONS -----
 (defn array-to-string
   [arr]
   (var str "")
@@ -180,8 +180,13 @@
 
   (msg/log :info (struct-to-string (layout/get)))
 )
-
 # ----- STACK IMPLEMENTATION -----
+# a stack stores an ordered list of panes, displaying the pane at the "front"
+# panes not in the front are each given a bar showing the pane's title above the front pane
+# a margins node (with no margins set) is used as the layout node type that contains a stack
+# the border-fg and border-bg properties on the node can store arbitrary strings
+# a stack node has :border-fg "stack" and :border-bg is a newline-separated lsit of the pane IDs
+
 (defn layout/find-stack
 ```
 given a layout and a path, checks if that path is inside a stack, and if so, returns the path to the stack. Returns nil otherwise.
@@ -635,7 +640,6 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
   (key/unbind :root [])
   (each binding restore-bindings
-    # (msg/log :info (string "function: " (get binding :function) " seq: " (array-to-string (get binding :sequence))))
     (key/bind :root (key-conv (get binding :sequence)) (get binding :function))
   )
   (def layout (layout/get))
@@ -678,6 +682,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   )
 )
 
+# ----- ACTIONS -----
 (key/action
   action/test-layout
   "layout testing"
@@ -729,7 +734,6 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   )
 )
 
-# ----- ACTIONS -----
 
 (key/action
   action/custom-move-right
