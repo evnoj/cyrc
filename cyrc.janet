@@ -369,19 +369,46 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   custom/split-right
   ```Split the currently attached pane into two horizontally, replacing the right pane with the given node.```
   [layout node]
-  (layout/replace-attached layout |(layout/split (layout/detach $) node)))
+  (def attach-path (layout/attach-path layout))
+  (def path (or
+    (layout/find-stack layout attach-path)
+    (trim attach-path)
+  ))
+
+  (layout/replace layout path |(do {:type :split
+                                        :border :none
+                                        :vertical false
+                                        :a (layout/detach $)
+                                        :b node})))
 
 (defn
   custom/split-left
   ```Split the currently attached pane into two horizontally, replacing the left pane with the given node.```
   [layout node]
-  (layout/replace-attached layout |(layout/split node (layout/detach $))))
+  (def attach-path (layout/attach-path layout))
+  (def path (or
+    (layout/find-stack layout attach-path)
+    (trim attach-path)
+  ))
+
+  (layout/replace layout path |(do {:type :split
+                                        :border :none
+                                        :vertical false
+                                        :a node
+                                        :b (layout/detach $)})))
 
 (defn
   custom/split-down
   ```Split the currently attached pane into two vertically, replacing the bottom pane with the given node.```
   [layout node]
-  (layout/replace-attached layout |(do {:type :split
+  (def attach-path (layout/attach-path layout))
+  (def path (or
+    (layout/find-stack layout attach-path)
+    (trim attach-path)
+  ))
+
+  (layout/replace layout path |(do {:type :split
+                                        :border :none
                                         :vertical true
                                         :a (layout/detach $)
                                         :b node})))
@@ -390,10 +417,17 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   custom/split-up
   ```Split the currently attached pane into two vertically, replacing the top pane with the given node.```
   [layout node]
-  (layout/replace-attached layout |(do {:type :split
+  (def attach-path (layout/attach-path layout))
+  (def path (or
+    (layout/find-stack layout attach-path)
+    (trim attach-path)
+  ))
+
+  (layout/replace layout path |(do {:type :split
+                                        :border :none
                                         :vertical true
-                                        :b (layout/detach $)
-                                        :a node})))
+                                        :a node
+                                        :b (layout/detach $)})))
 
 (defmacro-
   custom-pane-creator
@@ -422,22 +456,22 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (custom-pane-creator
   action/split-right
   "Split the current pane to the right."
-  layout/split-right)
+  custom/split-right)
 
 (custom-pane-creator
   action/split-left
   "Split the current pane to the left."
-  layout/split-left)
+  custom/split-left)
 
 (custom-pane-creator
   action/split-up
   "Split the current pane upwards."
-  layout/split-up)
+  custom/split-up)
 
 (custom-pane-creator
   action/split-down
   "Split the current pane downwards."
-  layout/split-down)
+  custom/split-down)
 
 (key/action
   action/grow-pane
