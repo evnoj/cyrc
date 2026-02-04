@@ -1,3 +1,60 @@
+(defn layout/remove-attached
+  ```Remove the attached node from the layout, simplifying the nearest ancestor with children.```
+  [layout]
+  (def path (layout/attach-path layout))
+  (if (nil? path) (break layout))
+  (def parent-path (layout/find-last
+                     layout
+                     path
+                     |(> (length (layout/successors $)) 1)))
+
+  # If there are no parents with other children, it's game over, just set the
+  # layout to a disconnected pane
+  (if (nil? parent-path)
+    (break {:type :pane :attached true}))
+
+  (def parent (layout/path layout parent-path))
+
+  (def new-parent
+    (cond
+      (layout/type?
+        :tabs
+        parent) (do
+                  (def existing-tabs (parent :tabs))
+                  (var tab-index 0)
+                  (while (not ((existing-tabs tab-index) :active))
+                    (++ tab-index)
+                  )
+
+                  (def remaining-tabs (filter
+                                       |(not (layout/attached? ($ :node)))
+                                       existing-tabs))
+                  (def num-tabs (length remaining-tabs))
+
+                  (if (= num-tabs 1)
+                    (layout/attach-first ((remaining-tabs 0) :node))
+                    (do
+                      (if (= tab-index num-tabs) (-- tab-index))
+                      (def attached-tab (remaining-tabs tab-index))
+                      (set (remaining-tabs tab-index) (as?-> (remaining-tabs tab-index) _
+                        (assoc _ :node (layout/attach-first (_ :node)))
+                        (assoc _ :active true)
+                      ))
+                      (assoc parent :tabs remaining-tabs))
+                    )
+                  )
+
+      (layout/type?
+        :split
+        parent) (do
+                  (def {:a a :b b} parent)
+                  (cond
+                    (layout/attached? a) (layout/attach-first b)
+                    (layout/attached? b) (layout/attach-first a)))))
+
+  (layout/assoc layout parent-path new-parent)
+)
+
 # helper functions
 (defn get-logs-pane
   "Get the NodeID of the logs pane"
@@ -348,12 +405,6 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   "Remove the current pane from the layout and the node tree."
   (def layout (layout/get))
   (def {:id id} (layout/path layout (layout/attach-path layout)))
-  # (def stack-path (layout/find-stack layout (layout/attach-path layout))
-
-  # (if stack-path
-  #   (layout/set (remove-stacked-pane layout stack-path)
-  #   (layout/set (layout/remove-attached layout))
-  # )
   (action/remove-layout-pane)
 
   (if (not (nil? id)) (tree/rm id))
@@ -543,9 +594,10 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   action/exit-mode
   "exit the current mode"
 
-  (def restore-bindings (param/get :restore-bindings :client))
-  (if (nil? restore-bindings) (break)) # not in a mode
+  (if (nil? (param/get :mode :target :client)) (break)) # not in a mode
+  (def restore-bindings (param/get :restore-bindings :target :client))
   (param/set :client :restore-bindings nil)
+  (param/set :client :mode nil)
 
   (key/unbind :root [])
   (each binding restore-bindings
@@ -561,6 +613,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   [name &named exit-binding bindings &opt unbind-existing]
   (default unbind-existing true)
 
+  (param/set :client :mode name)
   (param/set :client :restore-bindings (key/current))
   (if unbind-existing
     (key/unbind :root [])
@@ -643,6 +696,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 )
 
 # ----- ACTIONS -----
+
 (key/action
   action/custom-move-right
   "move right, inc. across tabs"
@@ -701,6 +755,88 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   )
 )
 
+(key/action
+  action/new-tab
+  "Create a new tab."
+  (def layout (layout/get))
+  (def shell (shell/new))
+
+  (def tabs-path (layout/find-last
+    layout
+    (layout/attach-path layout)
+    |(layout/type? :tabs $)
+  ))
+
+  (def detached (layout/detach layout))
+
+  (def new-layout (if (nil? tabs-path) (do
+    (if (param/get :mode :target :client) # if in a mode, tab node should be child of mode bar
+      (layout/assoc detached @[:node] {
+        :type :tabs
+        :tabs @[
+          {
+            :name "1"
+            :active false
+            :node (layout/path detached @[:node])
+          }
+          {
+            :name "2"
+            :active true
+            :node (new-bordered-pane shell :attach true)
+          }
+        ]
+      })
+      {
+        :type :tabs
+        :tabs @[
+          {
+            :name "1"
+            :active false
+            :node detached
+          }
+          {
+            :name "2"
+            :active true
+            :node (new-bordered-pane shell :attach true)
+          }
+        ]
+      }
+    )
+  ) (do
+    (def tabs-node (layout/path detached tabs-path))
+    (def {:tabs existing-tabs} tabs-node)
+
+    (defn tab-name-used [name tabs]
+      (var found false)
+      (each tab tabs
+        (if (= name (tab :name)) (set found true))
+      )
+      found
+    )
+    (var name 1)
+    (while (tab-name-used (string name) existing-tabs)
+      (set name (+ name 1))
+    )
+    (set name (string name))
+
+    (def new-tab {
+      :name name
+      :active true
+      :node (new-bordered-pane shell :attach true)
+    })
+
+    (layout/assoc
+      detached
+      tabs-path
+      (assoc tabs-node :tabs
+             @[;(map |(assoc $ :active false) existing-tabs)
+               new-tab])
+    )
+  )))
+
+  (layout/set new-layout)
+)
+
 # ----- GENERAL CONFIG -----
 (param/set :root :animate false)
 
@@ -739,7 +875,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   action/init-client
   "should be run when a client initializes"
 
-  (param/set :client :stacks @{})
+  # (param/set :client :remove-pane-on-exit true)
   (set-test-layout)
 )
 
