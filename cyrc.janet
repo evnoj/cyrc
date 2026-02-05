@@ -417,8 +417,38 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 (key/action
   action/merge-split-into-stack
-  "if the attached pane is a child of a split, or is in a stack that is a child of a split, merge the two halves (which will each be either a pane or a stack) into a single stack, replacing the split with it"
-  # TODO
+  "merge the parent split into a single stack"
+  # "if the attached pane is a child of a split, or is in a stack that is a child of a split, merge the two halves (which must each be either a pane or a stack) into a single stack, replacing the split with it. If the sibling of the attached pane is a split, will do nothing."
+  (def layout (layout/get))
+  (def attach-path (layout/attach-path layout))
+  (def parent-split-path (layout/find-last layout attach-path |(= ($ :type) :split)))
+  (if (nil? parent-split-path) (break))
+
+  (def parent-split (layout/path layout parent-split-path))
+  (def {:a a :b b} parent-split)
+  (if (or (= (a :type) :split) (= (b :type) :split)) (break))
+
+  # panes in :b go in front
+  (def panes @[])
+  (each node [b a]
+    (if (and (= (node :type) :margins) (= (node :border-fg) "stack")) (do
+      (def node-panes (string-to-panes (node :border-bg)))
+      (array/push panes ;node-panes)
+    ) (do # child is a pane
+      (def pane (layout/path node (layout/find node |(= ($ :type) :pane))))
+      (array/push panes (pane :id))
+    ))
+  )
+  (layout/set (layout/assoc layout parent-split-path (create-stack-node panes true)))
+)
+
+(key/action
+  action/break-stacked-pane-up
+  "break stacked pane up"
+  # breaks the current stacked pane into a vertical split, where the currently attached pane becomes the top child
+  (def layout (layout/get))
+  (def attach-path (layout/attach-path))
+  (def stack-path (layout/find-stack layout))
 )
 
 (defn
@@ -606,14 +636,6 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 # all keys are unbound and a new set of keybinds is created
 # the original keybinds are restored when exiting the mode
 # in general, ctrl+alt+/ should show the available actions in the mode, and ctrl+alt+q should leave the mode
-# (defn key-conv
-#   "takes a string that represents an element in a keybind sequence. If the string starts with re:, it converts it to the proper format to pass to key/bind and returns the array. Otherwise, returns the same string."
-#   [key]
-#   (if (= "re:" (string/slice key 0 3))
-#     (break [:re (string/slice key 3)])
-#   )
-#   key
-# )
 
 (defn key-conv
   "takes an array representing a keybind sequence as returned by a func like key/get, and converts it into an array suitable to be passed as the sequence to key/bind"
@@ -672,7 +694,6 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   action/test-mode
   "mode test"
 
-  # (enter-mode "TEST MODE" ["ctrl+alt+q"])
   (enter-mode "TEST MODE"
     :exit-binding ["esc"]
     :bindings [
@@ -722,7 +743,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
             :vertical false
             :border :none
             :a (new-bordered-pane (shell/new) :attach true)
-            :b (new-bordered-pane (get-logs-pane) :title "  log")
+            :b (new-bordered-pane (get-logs-pane) :title "  cy log")
           }
         }
         {
@@ -875,6 +896,11 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (layout/set new-layout)
 )
 
+(defn swap-pane-left
+  ""
+  [layout path]
+)
+
 # ----- GENERAL CONFIG -----
 (param/set :root :animate false)
 
@@ -903,8 +929,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["f2"] action/move-down)
 (key/bind :root ["f3"] action/move-up)
 (key/bind :root ["f4"] action/custom-move-right)
-(key/bind :root ["f7"] action/remove-layout-pane)
-(key/bind :root ["ctrl+7"] action/kill-layout-pane)
+(key/bind :root ["ctrl+7"] action/remove-layout-pane)
+(key/bind :root ["f7"] action/kill-layout-pane)
 (key/bind :root ["f5"] action/add-stacked-pane)
 (key/bind :root ["f10"] action/shift-stack-backward)
 (key/bind :root ["f11"] action/shift-stack-forward)
