@@ -1,61 +1,3 @@
-# ----- OVERRIDE BUILTINS -----
-(defn layout/remove-attached
-  ```Remove the attached node from the layout, simplifying the nearest ancestor with children.```
-  [layout]
-  (def path (layout/attach-path layout))
-  (if (nil? path) (break layout))
-  (def parent-path (layout/find-last
-                     layout
-                     path
-                     |(> (length (layout/successors $)) 1)))
-
-  # If there are no parents with other children, it's game over, just set the
-  # layout to a disconnected pane
-  (if (nil? parent-path)
-    (break {:type :pane :attached true}))
-
-  (def parent (layout/path layout parent-path))
-
-  (def new-parent
-    (cond
-      (layout/type?
-        :tabs
-        parent) (do
-                  (def existing-tabs (parent :tabs))
-                  (var tab-index 0)
-                  (while (not ((existing-tabs tab-index) :active))
-                    (++ tab-index)
-                  )
-
-                  (def remaining-tabs (filter
-                                       |(not (layout/attached? ($ :node)))
-                                       existing-tabs))
-                  (def num-tabs (length remaining-tabs))
-
-                  (if (= num-tabs 1)
-                    (layout/attach-first ((remaining-tabs 0) :node))
-                    (do
-                      (if (= tab-index num-tabs) (-- tab-index))
-                      (def attached-tab (remaining-tabs tab-index))
-                      (set (remaining-tabs tab-index) (as?-> (remaining-tabs tab-index) _
-                        (assoc _ :node (layout/attach-first (_ :node)))
-                        (assoc _ :active true)
-                      ))
-                      (assoc parent :tabs remaining-tabs))
-                    )
-                  )
-
-      (layout/type?
-        :split
-        parent) (do
-                  (def {:a a :b b} parent)
-                  (cond
-                    (layout/attached? a) (layout/attach-first b)
-                    (layout/attached? b) (layout/attach-first a)))))
-
-  (layout/assoc layout parent-path new-parent)
-)
-
 # ----- HELPER FUNCTIONS -----
 (defn get-logs-pane
   "Get the NodeID of the logs pane"
@@ -180,6 +122,72 @@
 
   (msg/log :info (struct-to-string (layout/get)))
 )
+# ----- OVERRIDE BUILTINS -----
+(defn layout/remove-node
+  ```Remove the node from the layout, simplifying the nearest ancestor with children.```
+  [layout path &opt &named attach]
+  # (def path (layout/attach-path layout))
+  (if (nil? path) (break layout))
+  (def parent-path (layout/find-last
+                    layout path |(> (length (layout/successors $)) 1)
+  ))
+
+  # If there are no parents with other children, it's game over, just set the
+  # layout to a disconnected pane
+  (if (nil? parent-path)
+    (break {:type :pane :attached true}))
+
+  (def parent (layout/path layout parent-path))
+  (msg/log :info (array-to-string parent-path))
+  (msg/log :info (struct-to-string parent))
+
+  (def new-parent
+    (cond
+      (layout/type? :tabs parent) (do
+        # (def {;parent-path tab-index} path)
+        (var tab-index (path (+ 1 (length parent-path))))
+        (def existing-tabs (parent :tabs))
+        (def remaining-tabs @[])
+        (for i 0 (length existing-tabs)
+          (if (not= i tab-index)
+            (array/push remaining-tabs (existing-tabs i))
+          )
+        )
+        (def num-tabs (length remaining-tabs))
+
+        (if (= num-tabs 1)
+          (if attach
+            (layout/attach-first ((remaining-tabs 0) :node))
+            ((remaining-tabs 0) :node)
+          )
+          (do
+            (if attach (do
+              (if (= tab-index num-tabs) (-- tab-index))
+              (def attached-tab (remaining-tabs tab-index))
+              (set (remaining-tabs tab-index) (as?-> (remaining-tabs tab-index) _
+                (assoc _ :node (layout/attach-first (_ :node)))
+                (assoc _ :active true)
+              ))
+            ))
+            (assoc parent :tabs remaining-tabs)
+          )
+        )
+      )
+
+      (layout/type? :split parent) (do
+        (def split-child (path (length parent-path)))
+        (def remaining-child (if (= split-child :a) (parent :b) (parent :a)))
+        (if attach
+          (layout/attach-first remaining-child)
+          remaining-child
+        )
+      )
+    )
+  )
+
+  (layout/assoc layout parent-path new-parent)
+)
+
 # ----- STACK IMPLEMENTATION -----
 # a stack stores an ordered list of panes, displaying the pane at the "front"
 # panes not in the front are each given a bar showing the pane's title above the front pane
@@ -393,16 +401,22 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (layout/assoc layout stack-path new-node)
 )
 
-(key/action
-  action/remove-layout-pane
-  "Remove the current pane from the layout."
-  (def layout (layout/get))
+(defn layout/remove-pane
+  [layout path &opt attach]
   (def stack-path (layout/find-stack layout (layout/attach-path layout)))
 
   (if stack-path
-    (layout/set (layout/remove-stacked-pane layout stack-path))
-    (layout/set (layout/remove-attached layout))
+    (layout/remove-stacked-pane layout stack-path)
+    (layout/remove-node layout path :attach attach)
   )
+)
+
+(key/action
+  action/remove-layout-pane
+  "Remove the current pane from the layout."
+
+  (def layout (layout/get))
+  (layout/set (layout/remove-pane layout (layout/attach-path layout) true))
 )
 
 (key/action
@@ -445,10 +459,111 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/action
   action/break-stacked-pane-up
   "break stacked pane up"
-  # breaks the current stacked pane into a vertical split, where the currently attached pane becomes the top child
+  # breaks the currently attached stack into a vertical split, where the front pane becomes the top child
   (def layout (layout/get))
-  (def attach-path (layout/attach-path))
-  (def stack-path (layout/find-stack layout))
+  (def attach-path (layout/attach-path layout))
+  (def stack-path (layout/find-stack layout attach-path))
+  (if (nil? stack-path) (break))
+
+  (def panes (as-> (layout/path layout stack-path) _
+    (_ :border-bg)
+    (string-to-panes _)
+  ))
+
+  (def attached-pane (panes 0))
+  (array/remove panes 0)
+  (layout/set (layout/assoc layout stack-path {
+    :type :split
+    :vertical true
+    :border :none
+    :a (new-bordered-pane attached-pane :attach true)
+    :b (create-stack-node panes)
+  }))
+)
+
+(key/action
+  action/break-stacked-pane-down
+  "break stacked pane down"
+  # breaks the currently attached stack into a vertical split, where the front pane becomes the bottom child
+  (def layout (layout/get))
+  (def attach-path (layout/attach-path layout))
+  (def stack-path (layout/find-stack layout attach-path))
+  (if (nil? stack-path) (break))
+
+  (def panes (as-> (layout/path layout stack-path) _
+    (_ :border-bg)
+    (string-to-panes _)
+  ))
+
+  (def attached-pane (panes 0))
+  (array/remove panes 0)
+  (layout/set (layout/assoc layout stack-path {
+    :type :split
+    :vertical true
+    :border :none
+    :a (create-stack-node panes)
+    :b (new-bordered-pane attached-pane :attach true)
+  }))
+)
+
+(key/action
+  action/break-stacked-pane-left
+  "break stacked pane left"
+  # breaks the currently attached stack into a horizontal split, where the front pane becomes the left child
+  (def layout (layout/get))
+  (def attach-path (layout/attach-path layout))
+  (def stack-path (layout/find-stack layout attach-path))
+  (if (nil? stack-path) (break))
+
+  (def panes (as-> (layout/path layout stack-path) _
+    (_ :border-bg)
+    (string-to-panes _)
+  ))
+
+  (def attached-pane (panes 0))
+  (array/remove panes 0)
+  (layout/set (layout/assoc layout stack-path {
+    :type :split
+    :vertical false
+    :border :none
+    :a (new-bordered-pane attached-pane :attach true)
+    :b (create-stack-node panes)
+  }))
+)
+
+(key/action
+  action/break-stacked-pane-right
+  "break stacked pane right"
+  # breaks the currently attached stack into a horizontal split, where the front pane becomes the right child
+  (def layout (layout/get))
+  (def attach-path (layout/attach-path layout))
+  (def stack-path (layout/find-stack layout attach-path))
+  (if (nil? stack-path) (break))
+
+  (def panes (as-> (layout/path layout stack-path) _
+    (_ :border-bg)
+    (string-to-panes _)
+  ))
+
+  (def attached-pane (panes 0))
+  (array/remove panes 0)
+  (layout/set (layout/assoc layout stack-path {
+    :type :split
+    :vertical false
+    :border :none
+    :a (create-stack-node panes)
+    :b (new-bordered-pane attached-pane :attach true)
+  }))
+)
+
+(key/action
+  action/break-pane-new-tab
+  "break the attached pane into a new tab"
+
+  (def layout (layout/get))
+  (def attach-path (layout/attach-path layout))
+  (def attach-id (layout/attach-id layout))
+  (def layout (layout/remove-pane layout attach-path))
 )
 
 (defn
