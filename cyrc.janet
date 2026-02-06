@@ -20,13 +20,26 @@
   }
 )
 
+(defn pane-display-title
+  [pane &opt style]
+  (default style true)
+
+  (def title (cond
+    (nil? pane) "󰆢  empty"
+    (or (param/get :title :target pane) (cmd/title pane))
+  ))
+
+  (if style
+    (style/text (string " " title " ") :bg "#1F1F28" :bold true)
+    (string " " title " ")
+  )
+)
+
 (defn pane-border-title
   [dimensions node]
 
   (def pane (get node :id))
-  (def title (param/get :title :target pane))
-  (default title (cmd/title pane))
-  (style/text (string " " title " ") :bg "#1F1F28" :bold true)
+  (pane-display-title pane)
 )
 
 (defn new-bordered-pane
@@ -312,9 +325,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 (defn get-stack-pane-title
   [pane]
-  (def title (param/get :title :target pane))
-  (default title (cmd/title pane))
-  (style/text (string "╭ " title) :bold true)
+  (style/text (string "╭" (pane-display-title pane false)) :bold true)
 )
 
 (defn stack-bar-title
@@ -394,6 +405,30 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (def layout (layout/get))
   (def current-pane (layout/attach-id layout))
   (def new-pane (shell/new))
+  (def current-path (layout/attach-path layout))
+  (var stack-path (layout/find-stack layout current-path))
+
+  (if stack-path (do
+    # (msg/log :info "adding to stack")
+    (def panes (string-to-panes (get (layout/path layout stack-path) :border-bg)))
+    (array/insert panes 0 new-pane)
+    (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
+  ) (do
+    # (msg/log :info "new stack")
+    (def panes @[new-pane current-pane])
+    # the pane has a border around it, the path to that is what we'll replace
+    (set stack-path @[;(trim current-path)])
+    (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
+  ))
+)
+
+(key/action
+  action/add-stacked-pane-empty
+  "add a stacked pane that is empty to the focused pane"
+
+  (def layout (layout/get))
+  (def current-pane (layout/attach-id layout))
+  (def new-pane nil)
   (def current-path (layout/attach-path layout))
   (var stack-path (layout/find-stack layout current-path))
 
@@ -1045,10 +1080,10 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 (key/bind :root ["ctrl+alt+p"] action/command-palette)
 
-(key/bind :root ["ctrl+alt+h"] action/custom-move-left)
+(key/bind :root ["ctrl+alt+h"] action/focus-left)
 (key/bind :root ["ctrl+alt+j"] action/move-down)
 (key/bind :root ["ctrl+alt+k"] action/move-up)
-(key/bind :root ["ctrl+alt+l"] action/custom-move-right)
+(key/bind :root ["ctrl+alt+l"] action/focus-right)
 
 (key/bind :root ["ctrl+alt+u"] action/shift-stack-backward)
 (key/bind :root ["ctrl+alt+o"] action/shift-stack-forward)
@@ -1056,6 +1091,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["ctrl+alt+shift+o"] action/reorder-stack-forward)
 
 (key/bind :root ["ctrl+alt+n"] action/add-stacked-pane)
+(key/bind :root ["ctrl+alt+shift+n"] action/add-stacked-pane-empty)
 
 (key/bind :root ["ctrl+alt+d"] action/remove-layout-pane)
 (key/bind :root ["ctrl+alt+x"] action/kill-layout-pane)
