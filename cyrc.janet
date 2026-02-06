@@ -122,6 +122,95 @@
 
   (msg/log :info (struct-to-string (layout/get)))
 )
+
+# ---- LAYOUT FUNCTIONS -----
+(defn layout/new-tab
+  "creates a new tab with the specified child. If tabs-path is not provided, adds the tab to the first tabs node found, or creates a top-level tab if none is found. If attach, attaches to child-node and sets the new tab to active."
+  [layout child-node &opt &named tabs-path attach]
+
+  (default tabs-path (layout/find
+    layout
+    |(layout/type? :tabs $)
+  ))
+  (default attach false)
+
+  (if attach
+    (def layout (layout/detach layout))
+  )
+
+  (def new-layout (if (nil? tabs-path) (do
+    (if (param/get :mode :target :client) # if in a mode, tab node should be child of mode bar
+      (layout/assoc layout @[:node] {
+        :type :tabs
+        :tabs @[
+          {
+            :name "1"
+            :active false
+            :node (layout/path layout @[:node])
+          }
+          {
+            :name "2"
+            :active true
+            :node (assoc child-node :attached true)
+          }
+        ]
+      })
+      {
+        :type :tabs
+        :tabs @[
+          {
+            :name "1"
+            :active false
+            :node layout
+          }
+          {
+            :name "2"
+            :active true
+            :node (assoc child-node :attached true)
+          }
+        ]
+      }
+    )
+  ) (do
+    (def tabs-node (layout/path layout tabs-path))
+    (def {:tabs existing-tabs} tabs-node)
+    (var active-tab 0)
+    (for i 0 (length existing-tabs)
+      (if ((existing-tabs i) :active) (set active-tab i))
+    )
+
+    (defn tab-name-used [name tabs]
+      (var found false)
+      (each tab tabs
+        (if (= name (tab :name)) (set found true))
+      )
+      found
+    )
+    (var name 1)
+    (while (tab-name-used (string name) existing-tabs)
+      (set name (+ name 1))
+    )
+    (set name (string name))
+
+    (def new-tab {
+      :name name
+      :active attach
+      :node (if attach (layout/attach-first child-node) child-node)
+    })
+
+    (def existing-tabs (if attach
+      (map |(assoc $ :active false) existing-tabs)
+      existing-tabs
+    ))
+
+    (layout/assoc
+      layout
+      tabs-path
+      (assoc tabs-node :tabs (array/insert existing-tabs (+ 1 active-tab) new-tab))
+    )
+  )))
+)
+
 # ----- OVERRIDE BUILTINS -----
 (defn layout/remove-node
   ```Remove the node from the layout, simplifying the nearest ancestor with children.```
@@ -381,7 +470,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 )
 
 (defn layout/remove-stacked-pane
-  [layout stack-path]
+  [layout stack-path &opt &named attach]
+  (default attach false)
 
   (def stack-node (layout/path layout stack-path))
   (def panes (string-to-panes (get stack-node :border-bg)))
@@ -392,9 +482,9 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (if (= (length panes) 1)
     (do
       (def last-pane (get panes 0))
-      (set new-node (new-bordered-pane last-pane :attach true))
+      (set new-node (new-bordered-pane last-pane :attach attach))
     ) (do
-      (set new-node (create-stack-node panes true))
+      (set new-node (create-stack-node panes attach))
     )
   )
 
@@ -403,10 +493,12 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 (defn layout/remove-pane
   [layout path &opt attach]
+  (default attach false)
+  
   (def stack-path (layout/find-stack layout (layout/attach-path layout)))
 
   (if stack-path
-    (layout/remove-stacked-pane layout stack-path)
+    (layout/remove-stacked-pane layout stack-path :attach attach)
     (layout/remove-node layout path :attach attach)
   )
 )
@@ -565,7 +657,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (def attach-id (layout/attach-id layout))
   (def layout (layout/remove-pane layout attach-path))
 
-  (def tabs-path (layout/find-last layout attach-path |(= ($ :type) :tabs)))
+  # (def tabs-path (layout/find-last layout attach-path |(= ($ :type) :tabs)))
+  (layout/set (layout/new-tab layout (new-bordered-pane attach-id) :attach true))
 )
 
 (defn
@@ -929,96 +1022,6 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
     )
     (layout/set layout-moved)
   )
-)
-
-(defn layout/new-tab
-  "creates a new tab with the specified child. If tabs-path is not provided, adds the tab to the first tabs node found, or creates a top-level tab if none is found. If attach, attaches to child-node and sets the new tab to active."
-  [layout child-node &opt &named tabs-path attach]
-
-  (default tabs-path (layout/find
-    layout
-    |(layout/type? :tabs $)
-  ))
-  (default attach false)
-
-  (if attach
-    (def layout (layout/detach layout))
-  )
-
-  (def new-layout (if (nil? tabs-path) (do
-    (if (param/get :mode :target :client) # if in a mode, tab node should be child of mode bar
-      (layout/assoc layout @[:node] {
-        :type :tabs
-        :tabs @[
-          {
-            :name "1"
-            :active false
-            :node (layout/path layout @[:node])
-          }
-          {
-            :name "2"
-            :active true
-            :node (assoc child-node :attached true)
-          }
-        ]
-      })
-      {
-        :type :tabs
-        :tabs @[
-          {
-            :name "1"
-            :active false
-            :node layout
-          }
-          {
-            :name "2"
-            :active true
-            :node (assoc child-node :attached true)
-          }
-        ]
-      }
-    )
-  ) (do
-    (def tabs-node (layout/path layout tabs-path))
-    (def {:tabs existing-tabs} tabs-node)
-    (var active-tab 0)
-    (for i 0 (length existing-tabs)
-      (if ((existing-tabs i) :active) (set active-tab i))
-    )
-
-    (defn tab-name-used [name tabs]
-      (var found false)
-      (each tab tabs
-        (if (= name (tab :name)) (set found true))
-      )
-      found
-    )
-    (var name 1)
-    (while (tab-name-used (string name) existing-tabs)
-      (set name (+ name 1))
-    )
-    (set name (string name))
-
-    (def new-tab {
-      :name name
-      :active attach
-      :node (if attach (assoc child-node :attached true) child-node)
-    })
-
-    (def existing-tabs (if attach
-      (map |(assoc $ :active false) existing-tabs)
-      existing-tabs
-    ))
-
-    (layout/assoc
-      layout
-      tabs-path
-      (assoc tabs-node :tabs (array/insert existing-tabs (+ 1 active-tab) new-tab))
-             
-             # @[;(map |(assoc $ :active false) existing-tabs)
-             #   new-tab])
-    )
-  )))
 )
 
 (key/action
