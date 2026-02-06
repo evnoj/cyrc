@@ -564,6 +564,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (def attach-path (layout/attach-path layout))
   (def attach-id (layout/attach-id layout))
   (def layout (layout/remove-pane layout attach-path))
+
+  (def tabs-path (layout/find-last layout attach-path |(= ($ :type) :tabs)))
 )
 
 (defn
@@ -929,34 +931,34 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   )
 )
 
-(key/action
-  action/new-tab
-  "Create a new tab."
-  (def layout (layout/get))
-  (def shell (shell/new))
+(defn layout/new-tab
+  "creates a new tab with the specified child. If tabs-path is not provided, adds the tab to the first tabs node found, or creates a top-level tab if none is found. If attach, attaches to child-node and sets the new tab to active."
+  [layout child-node &opt &named tabs-path attach]
 
-  (def tabs-path (layout/find-last
+  (default tabs-path (layout/find
     layout
-    (layout/attach-path layout)
     |(layout/type? :tabs $)
   ))
+  (default attach false)
 
-  (def detached (layout/detach layout))
+  (if attach
+    (def layout (layout/detach layout))
+  )
 
   (def new-layout (if (nil? tabs-path) (do
     (if (param/get :mode :target :client) # if in a mode, tab node should be child of mode bar
-      (layout/assoc detached @[:node] {
+      (layout/assoc layout @[:node] {
         :type :tabs
         :tabs @[
           {
             :name "1"
             :active false
-            :node (layout/path detached @[:node])
+            :node (layout/path layout @[:node])
           }
           {
             :name "2"
             :active true
-            :node (new-bordered-pane shell :attach true)
+            :node (assoc child-node :attached true)
           }
         ]
       })
@@ -966,19 +968,23 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
           {
             :name "1"
             :active false
-            :node detached
+            :node layout
           }
           {
             :name "2"
             :active true
-            :node (new-bordered-pane shell :attach true)
+            :node (assoc child-node :attached true)
           }
         ]
       }
     )
   ) (do
-    (def tabs-node (layout/path detached tabs-path))
+    (def tabs-node (layout/path layout tabs-path))
     (def {:tabs existing-tabs} tabs-node)
+    (var active-tab 0)
+    (for i 0 (length existing-tabs)
+      (if ((existing-tabs i) :active) (set active-tab i))
+    )
 
     (defn tab-name-used [name tabs]
       (var found false)
@@ -995,20 +1001,32 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
     (def new-tab {
       :name name
-      :active true
-      :node (new-bordered-pane shell :attach true)
+      :active attach
+      :node (if attach (assoc child-node :attached true) child-node)
     })
 
+    (def existing-tabs (if attach
+      (map |(assoc $ :active false) existing-tabs)
+      existing-tabs
+    ))
+
     (layout/assoc
-      detached
+      layout
       tabs-path
-      (assoc tabs-node :tabs
-             @[;(map |(assoc $ :active false) existing-tabs)
-               new-tab])
+      (assoc tabs-node :tabs (array/insert existing-tabs (+ 1 active-tab) new-tab))
+             
+             # @[;(map |(assoc $ :active false) existing-tabs)
+             #   new-tab])
     )
   )))
+)
 
-  (layout/set new-layout)
+(key/action
+  action/new-tab
+  "Create a new tab"
+
+  (def layout (layout/get))
+  (layout/set (layout/new-tab layout (new-bordered-pane (shell/new)) :attach true))
 )
 
 (defn swap-pane-left
