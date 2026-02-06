@@ -967,8 +967,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 
 (key/action
-  action/custom-move-right
-  "move right, inc. across tabs"
+  action/focus-right
+  "focus the pane to the right, inc. across tabs"
 
   (def layout-current (layout/get))
   (def layout-moved (layout/move-right layout-current))
@@ -997,8 +997,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 )
 
 (key/action
-  action/custom-move-left
-  "move left, inc. across tabs"
+  action/focus-left
+  "focus the pane to the left inc. across tabs"
 
   (def layout-current (layout/get))
   (def layout-moved (layout/move-left layout-current))
@@ -1061,10 +1061,10 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["ctrl+alt+x"] action/kill-layout-pane)
 
 # for intial compatibility while I transition from zellij
-(key/bind :root ["f1"] action/custom-move-left)
+(key/bind :root ["f1"] action/focus-left)
 (key/bind :root ["f2"] action/move-down)
 (key/bind :root ["f3"] action/move-up)
-(key/bind :root ["f4"] action/custom-move-right)
+(key/bind :root ["f4"] action/focus-right)
 (key/bind :root ["ctrl+7"] action/remove-layout-pane)
 (key/bind :root ["f7"] action/kill-layout-pane)
 (key/bind :root ["f5"] action/add-stacked-pane)
