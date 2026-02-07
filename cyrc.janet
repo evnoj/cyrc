@@ -97,7 +97,8 @@
 
 (defn set-title
   [title]
-  (param/set (pane/current) :title title)
+  (def pane (pane/current))
+  (if pane (param/set pane :title title))
 )
 
 (defn get-title
@@ -295,7 +296,7 @@
 # panes not in the front are each given a bar showing the pane's title above the front pane
 # a margins node (with no margins set) is used as the layout node type that contains a stack
 # the border-fg and border-bg properties on the node can store arbitrary strings
-# a stack node has :border-fg "stack" and :border-bg is a newline-separated lsit of the pane IDs
+# a stack node has :border-fg "stack" and :border-bg is a newline-separated list of the pane IDs
 
 (defn layout/find-stack
 ```
@@ -682,6 +683,24 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
     :b (new-bordered-pane attached-pane :attach true)
   }))
 )
+
+# (key/action
+#   action/move-stacked-pane-right
+#   "move stacked pane right"
+
+#   (def layout (layout/get))
+#   (def attach-path (layout/attach-path layout))
+#   (def stack-path (layout/find-stack layout attach-path))
+#   (if (nil? stack-path) (break))
+
+#   (def pane (as-> (layout/path layout stack-path) _
+#     (_ :border-bg)
+#     (string-to-panes _)
+#     (get _ 0)
+#   ))
+
+#   (def layout (layout/remove-stacked-pane layout stack-path))
+# )
 
 (key/action
   action/break-pane-new-tab
