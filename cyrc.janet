@@ -176,9 +176,10 @@
   ))
   (default attach false)
 
-  (if attach
+  (def layout (if attach
     (def layout (layout/detach layout))
-  )
+    layout
+  ))
 
   (def new-layout (if (nil? tabs-path) (do
     (if (param/get :mode :target :client) # if in a mode, tab node should be child of mode bar
