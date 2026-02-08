@@ -138,6 +138,34 @@
 )
 
 # ---- LAYOUT FUNCTIONS -----
+(defn layout/search
+  ```given a layout node and a predicate function that takes a layout node,
+  return an array of every path to a node where the predicate evaluated to true
+  ```
+  [layout pred]
+
+  (def paths @[])
+  (def children (layout/successors layout))
+  (each child children (do
+    (def found-paths (map |(identity @[;child ;$]) (layout/search (layout/path layout child) pred)))
+    (array/concat paths found-paths)
+  ))
+
+  (if (pred layout) (array/push paths @[]))
+  paths
+)
+
+(key/action
+  action/layout-search-test
+  "layout search test"
+
+  (def layout (layout/get))
+  (def panes (layout/search layout |(layout/type? :pane $)))
+  (each pane panes
+    (msg/log :info (array-to-string pane))
+  )
+)
+
 (defn layout/new-tab
   "creates a new tab with the specified child. If tabs-path is not provided, adds the tab to the first tabs node found, or creates a top-level tab if none is found. If attach, attaches to child-node and sets the new tab to active."
   [layout child-node &opt &named tabs-path attach]
@@ -225,7 +253,6 @@
   )))
 )
 
-# ----- OVERRIDE BUILTINS -----
 (defn layout/remove-node
   ```Remove the node from the layout, simplifying the nearest ancestor with children.```
   [layout path &opt &named attach]
@@ -241,8 +268,6 @@
     (break {:type :pane :attached true}))
 
   (def parent (layout/path layout parent-path))
-  (msg/log :info (array-to-string parent-path))
-  (msg/log :info (struct-to-string parent))
 
   (def new-parent
     (cond
@@ -285,6 +310,36 @@
           remaining-child
         )
       )
+
+      (layout/type? :stack parent) (do
+        (var leaf-index (path (+ 1 (length parent-path))))
+        (def existing-leaves (parent :leaves))
+        (def remaining-leaves @[])
+        (for i 0 (length existing-leaves)
+          (if (not= i leaf-index)
+            (array/push remaining-leaves (existing-leaves i))
+          )
+        )
+        (def num-leaves (length remaining-leaves))
+
+        (if (= num-leaves 1)
+          (if attach
+            (layout/attach-first ((remaining-leaves 0) :node))
+            ((remaining-leaves 0) :node)
+          )
+          (do
+            (if attach (do
+              (if (= leaf-index num-leaves) (-- leaf-index))
+              (def attached-leaf (remaining-leaves leaf-index))
+              (set (remaining-leaves leaf-index) (as?-> (remaining-leaves leaf-index) _
+                (assoc _ :node (layout/attach-first (_ :node)))
+                (assoc _ :active true)
+              ))
+            ))
+            (assoc parent :leaves remaining-leaves)
+          )
+        )
+      )
     )
   )
 
@@ -301,27 +356,12 @@
 (defn layout/find-stack
 ```
 given a layout and a path, checks if that path is inside a stack, and if so, returns the path to the stack. Returns nil otherwise.
-Since we are appropriating the margin layout node as the container that indicates a stack,
-it really checks for the first margin node that has the border-fg property set to the string "stack".
 Assumes there are no nested stacks, simply returns the path to the last stack node it finds.
 ```
   [layout path]
   (layout/find-last layout path |(
-    and (= (type $) :struct) (= ($ :type) :margins) (= ($ :border-fg) "stack")
-    # = ($ :type) :margins
+    = (get $ :type) :stack
   ))
-)
-
-(defn panes-to-string
-"takes an arrtup of pane ids (nums) and returns a string of newline-separated pane ids"
-[panes]
-  (string/join (map |(string $) panes) "\n")
-)
-
-(defn string-to-panes
-"takes a string of newline-separated pane ids and returns an array of pane ids (nums)"
-[panes]
-  (map |(scan-number $) (string/split "\n" panes))
 )
 
 (defn get-stack-pane-title
@@ -362,41 +402,69 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   # (def stack-path (layout/find-stack layout))
 )
 
-(defn create-stack-node
-  "Creates and returns a margin layout node that contains other layout nodes that represent a stack of panes. Takes a list of the node IDs of the panes in the stack (strings). 0th element is the front of the stack, going backwards (up) from there."
-  [panes &opt attach]
+(defn layout/add-stacked-pane
+  ```
+  given a layout, path, and pane node id, add a stacked pane.
+  If path is to a stack, the new pane is added to the stack.
+  If path is not to a stack, that node is replaced with a stack,
+  and any descendant panes of the node at `path` are put into the stack.
+  `pane-id` is placed at the front of the stack.
 
-  (default attach false)
+  If `attach`, the pane is attached to and the new stack leaf made active
+  Other panes will be detached and other stack leaves made inactive
+  ```
+  [layout path pane-id &opt &named attach]
 
-  {
-    :type :margins
-    :border-fg "stack"
-    :border-bg (panes-to-string panes)
-    :node (do
-      (var stack (new-bordered-pane (get panes 0) :attach attach))
-      (if (<= (length panes) 1) (break stack))
+  (def layout (if attach (layout/detach layout) layout))
+  (def node (layout/path layout path))
+  (def new-leaf {
+    :active attach
+    :title pane-border-title
+    :node {
+      :type :pane
+      :attached attach
+      :id pane-id
+    }
+  })
 
-      (for i 1 (length panes)
-        (set stack {
-          :type :bar
-          # :text (style/text (string "╭ " "placeholder") :bold true)
-          # :text stack-bar-title
-          :text (get-stack-pane-title (get panes i))
-          :node stack
-        })
-      )
-      stack
-    )
-  }
+  (def stack (if (layout/type? :stack node) (do
+    (def node (if attach
+      (def node (assoc node :leaves (map |(assoc $ :active false) (node :leaves))))
+      node
+    ))
+
+    (array/push (node :leaves) new-leaf)
+    # (array/insert (node :leaves) 0 new-leaf)
+    node
+  ) (do
+    (def panes (map
+                |(layout/path node $)
+                (layout/search node |(layout/type? :pane $))))
+
+    (def leaves (map
+                 |(identity {
+                  :title pane-border-title
+                  :node {
+                    :type :pane
+                    :id ($ :id)
+                  }
+                 }) panes))
+
+    (array/push leaves new-leaf)
+
+    {
+      :type :stack
+      :leaves leaves
+    }
+  )))
+  (layout/assoc layout path stack)
 )
 
-(defn render-stack
-  "Takes a layout and a stack table, and returns the layout modified so the path at (stack :path) contains the created stack node hierarchy"
-  [layout stack &opt &named attach]
-  (default attach false)
-
-  (def stack-node (create-stack-node (get stack :panes) attach))
-  (layout/assoc layout (get stack :path) stack-node)
+(key/action
+  action/layout-path-test
+  "layout path test"
+  (def layout (layout/get))
+  (def node (layout/path layout @[]))
 )
 
 (key/action
@@ -404,147 +472,193 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   "add a stacked pane at a new shell in the current directory to the focused pane"
 
   (def layout (layout/get))
-  (def current-pane (layout/attach-id layout))
+  (def path (layout/attach-path layout))
+  (def stack (layout/find-stack layout path))
+  (def node (layout/path layout path))
   (def new-pane (shell/new))
-  (def current-path (layout/attach-path layout))
-  (var stack-path (layout/find-stack layout current-path))
 
-  (if stack-path (do
-    # (msg/log :info "adding to stack")
-    (def panes (string-to-panes (get (layout/path layout stack-path) :border-bg)))
-    (array/insert panes 0 new-pane)
-    (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
+  (def new-layout (if stack (do
+    (layout/add-stacked-pane layout stack new-pane :attach true)
   ) (do
-    # (msg/log :info "new stack")
-    (def panes @[new-pane current-pane])
     # the pane has a border around it, the path to that is what we'll replace
-    (set stack-path @[;(trim current-path)])
-    (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
-  ))
+    (layout/add-stacked-pane layout (trim path) new-pane :attach true)
+  )))
+  (layout/set new-layout)
 )
+# (key/action
+#   action/add-stacked-pane
+#   "add a stacked pane at a new shell in the current directory to the focused pane"
 
-(key/action
-  action/add-stacked-pane-empty
-  "add a stacked pane that is empty to the focused pane"
+#   (def layout (layout/get))
+#   (def current-pane (layout/attach-id layout))
+#   (def new-pane (shell/new))
+#   (def current-path (layout/attach-path layout))
+#   (var stack-path (layout/find-stack layout current-path))
 
-  (def layout (layout/get))
-  (def current-pane (layout/attach-id layout))
-  (def new-pane nil)
-  (def current-path (layout/attach-path layout))
-  (var stack-path (layout/find-stack layout current-path))
+#   (if stack-path (do
+#     # (msg/log :info "adding to stack")
+#     (def layout (layout/detach layout))
+#     (def stack (layout/path layout stack-path))
+#     (assoc stack :leaves (map |(assoc $ :active false) (stack :leaves)))
+#     (array/insert (stack :leaves) 0 {
+#       :active true
+#       :title pane-border-title
+#     })
+#     (layout/set layout)
+#   ) (do
+#     # (msg/log :info "new stack")
+#     (def panes @[new-pane current-pane])
+#     (def stack {
+#       :type :stack
+#       :leaves @[
+#         {
+#           :active true
+#           :title pane-border-title
+#           :node {
+#             :type :pane
+#             :attached true
+#             :id current-pane
+#           }
+#         }
+#         {
+#           :title pane-border-title
+#           :node {
+#             :type :pane
+#             :id new-pane
+#           }
+#         }
+#       ]
+#     })
+#     # the pane has a border around it, the path to that is what we'll replace
+#     (set stack-path @[;(trim current-path)])
+#     (layout/set (layout/assoc layout stack-path stack))
+#   ))
+# )
 
-  (if stack-path (do
-    # (msg/log :info "adding to stack")
-    (def panes (string-to-panes (get (layout/path layout stack-path) :border-bg)))
-    (array/insert panes 0 new-pane)
-    (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
-  ) (do
-    # (msg/log :info "new stack")
-    (def panes @[new-pane current-pane])
-    # the pane has a border around it, the path to that is what we'll replace
-    (set stack-path @[;(trim current-path)])
-    (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
-  ))
-)
+# (key/action
+#   action/add-stacked-pane-empty
+#   "add a stacked pane that is empty to the focused pane"
 
-(key/action
-  action/shift-stack-forward
-  "shift the current stack forward"
+#   (def layout (layout/get))
+#   (def current-pane (layout/attach-id layout))
+#   (def new-pane nil)
+#   (def current-path (layout/attach-path layout))
+#   (var stack-path (layout/find-stack layout current-path))
 
-  (def layout (layout/get))
-  (def pane (layout/attach-id layout))
-  (def stack-path (layout/find-stack layout (layout/attach-path layout)))
-  (if (nil? stack-path) (break))
-  (def panes (string-to-panes (get (layout/path layout stack-path) :border-bg)))
-  (def front-pane (get panes 0))
-  (array/remove panes 0)
-  (array/push panes front-pane)
-  (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
-)
+#   (if stack-path (do
+#     # (msg/log :info "adding to stack")
+#     (def panes (string-to-panes (get (layout/path layout stack-path) :border-bg)))
+#     (array/insert panes 0 new-pane)
+#     (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
+#   ) (do
+#     # (msg/log :info "new stack")
+#     (def panes @[new-pane current-pane])
+#     # the pane has a border around it, the path to that is what we'll replace
+#     (set stack-path @[;(trim current-path)])
+#     (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
+#   ))
+# )
 
-(key/action
-  action/reorder-stack-forward
-  "reorder the current stack forward. Like shift-stack-forward, but leaves the front pane at the front. A way to reposition the front pane in the stack ordering."
+# (key/action
+#   action/shift-stack-forward
+#   "shift the current stack forward"
 
-  (def layout (layout/get))
-  (def pane (layout/attach-id layout))
-  (def stack-path (layout/find-stack layout (layout/attach-path layout)))
-  (if (nil? stack-path) (break))
-  (def panes (string-to-panes (get (layout/path layout stack-path) :border-bg)))
-  (def second-front-pane (get panes 1))
-  (array/remove panes 1)
-  (array/push panes second-front-pane)
-  (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
-)
+#   (def layout (layout/get))
+#   (def pane (layout/attach-id layout))
+#   (def stack-path (layout/find-stack layout (layout/attach-path layout)))
+#   (if (nil? stack-path) (break))
+#   (def panes (string-to-panes (get (layout/path layout stack-path) :border-bg)))
+#   (def front-pane (get panes 0))
+#   (array/remove panes 0)
+#   (array/push panes front-pane)
+#   (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
+# )
 
-(key/action
-  action/shift-stack-backward
-  "shift the current stack backward"
+# (key/action
+#   action/reorder-stack-forward
+#   "reorder the current stack forward. Like shift-stack-forward, but leaves the front pane at the front. A way to reposition the front pane in the stack ordering."
 
-  (def layout (layout/get))
-  (def pane (layout/attach-id layout))
-  (def stack-path (layout/find-stack layout (layout/attach-path layout)))
-  (if (nil? stack-path) (break))
-  (def panes (string-to-panes (get (layout/path layout stack-path) :border-bg)))
-  (def back-pane (array/pop panes))
-  (array/insert panes 0 back-pane)
-  (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
-)
+#   (def layout (layout/get))
+#   (def pane (layout/attach-id layout))
+#   (def stack-path (layout/find-stack layout (layout/attach-path layout)))
+#   (if (nil? stack-path) (break))
+#   (def panes (string-to-panes (get (layout/path layout stack-path) :border-bg)))
+#   (def second-front-pane (get panes 1))
+#   (array/remove panes 1)
+#   (array/push panes second-front-pane)
+#   (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
+# )
 
-(key/action
-  action/reorder-stack-backward
-  "reorder the current stack backward. Like shift-stack-backward, but leaves the front pane at the front. A way to reposition the front pane in the stack ordering."
+# (key/action
+#   action/shift-stack-backward
+#   "shift the current stack backward"
 
-  (def layout (layout/get))
-  (def pane (layout/attach-id layout))
-  (def stack-path (layout/find-stack layout (layout/attach-path layout)))
-  (if (nil? stack-path) (break))
-  (def panes (string-to-panes (get (layout/path layout stack-path) :border-bg)))
-  (def back-pane (array/pop panes))
-  (array/insert panes 1 back-pane)
-  (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
-)
+#   (def layout (layout/get))
+#   (def pane (layout/attach-id layout))
+#   (def stack-path (layout/find-stack layout (layout/attach-path layout)))
+#   (if (nil? stack-path) (break))
+#   (def panes (string-to-panes (get (layout/path layout stack-path) :border-bg)))
+#   (def back-pane (array/pop panes))
+#   (array/insert panes 0 back-pane)
+#   (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
+# )
 
-(defn layout/remove-stacked-pane
-  [layout stack-path &opt &named attach]
-  (default attach false)
+# (key/action
+#   action/reorder-stack-backward
+#   "reorder the current stack backward. Like shift-stack-backward, but leaves the front pane at the front. A way to reposition the front pane in the stack ordering."
 
-  (def stack-node (layout/path layout stack-path))
-  (def panes (string-to-panes (get stack-node :border-bg)))
-  (var new-node nil)
+#   (def layout (layout/get))
+#   (def pane (layout/attach-id layout))
+#   (def stack-path (layout/find-stack layout (layout/attach-path layout)))
+#   (if (nil? stack-path) (break))
+#   (def panes (string-to-panes (get (layout/path layout stack-path) :border-bg)))
+#   (def back-pane (array/pop panes))
+#   (array/insert panes 1 back-pane)
+#   (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
+# )
 
-  (array/remove panes 0)
+# (defn layout/remove-stacked-pane
+#   [layout stack-path &opt &named attach]
+#   (default attach false)
 
-  (if (= (length panes) 1)
-    (do
-      (def last-pane (get panes 0))
-      (set new-node (new-bordered-pane last-pane :attach attach))
-    ) (do
-      (set new-node (create-stack-node panes attach))
-    )
-  )
+#   (def stack-node (layout/path layout stack-path))
+#   (def panes (string-to-panes (get stack-node :border-bg)))
+#   (var new-node nil)
 
-  (layout/assoc layout stack-path new-node)
-)
+#   (array/remove panes 0)
 
-(defn layout/remove-pane
-  [layout path &opt attach]
-  (default attach false)
-  
-  (def stack-path (layout/find-stack layout (layout/attach-path layout)))
+#   (if (= (length panes) 1)
+#     (do
+#       (def last-pane (get panes 0))
+#       (set new-node (new-bordered-pane last-pane :attach attach))
+#     ) (do
+#       (set new-node (create-stack-node panes attach))
+#     )
+#   )
 
-  (if stack-path
-    (layout/remove-stacked-pane layout stack-path :attach attach)
-    (layout/remove-node layout path :attach attach)
-  )
-)
+#   (layout/assoc layout stack-path new-node)
+# )
 
 (key/action
   action/remove-layout-pane
   "Remove the current pane from the layout."
 
   (def layout (layout/get))
-  (layout/set (layout/remove-pane layout (layout/attach-path layout) true))
+  (def layout (layout/remove-node layout (layout/attach-path layout) :attach true))
+  (def attach-path (layout/attach-path layout))
+  (def attach-id (layout/attach-id layout))
+  # ensure the pane has a border around it when it isn't in a stack, necessary when simplifying a stack
+  (def stack (layout/find-stack layout attach-path))
+  (when (not stack)
+    (def parent-path (trim attach-path))
+    (def parent (layout/path layout parent-path))
+    (when (not (layout/type? :borders parent))
+      (def layout (layout/assoc layout attach-path (new-bordered-pane attach-id :attach true)))
+      (layout/set layout)
+      (break)
+    )
+  )
+  (layout/set layout)
 )
 
 (key/action
@@ -557,132 +671,132 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (if (not (nil? id)) (tree/rm id))
 )
 
-(key/action
-  action/merge-split-into-stack
-  "merge the parent split into a single stack"
-  # "if the attached pane is a child of a split, or is in a stack that is a child of a split, merge the two halves (which must each be either a pane or a stack) into a single stack, replacing the split with it. If the sibling of the attached pane is a split, will do nothing."
-  (def layout (layout/get))
-  (def attach-path (layout/attach-path layout))
-  (def parent-split-path (layout/find-last layout attach-path |(= ($ :type) :split)))
-  (if (nil? parent-split-path) (break))
+# (key/action
+#   action/merge-split-into-stack
+#   "merge the parent split into a single stack"
+#   # "if the attached pane is a child of a split, or is in a stack that is a child of a split, merge the two halves (which must each be either a pane or a stack) into a single stack, replacing the split with it. If the sibling of the attached pane is a split, will do nothing."
+#   (def layout (layout/get))
+#   (def attach-path (layout/attach-path layout))
+#   (def parent-split-path (layout/find-last layout attach-path |(= ($ :type) :split)))
+#   (if (nil? parent-split-path) (break))
 
-  (def parent-split (layout/path layout parent-split-path))
-  (def {:a a :b b} parent-split)
-  (if (or (= (a :type) :split) (= (b :type) :split)) (break))
+#   (def parent-split (layout/path layout parent-split-path))
+#   (def {:a a :b b} parent-split)
+#   (if (or (= (a :type) :split) (= (b :type) :split)) (break))
 
-  # panes in :b go in front
-  (def panes @[])
-  (each node [b a]
-    (if (and (= (node :type) :margins) (= (node :border-fg) "stack")) (do
-      (def node-panes (string-to-panes (node :border-bg)))
-      (array/push panes ;node-panes)
-    ) (do # child is a pane
-      (def pane (layout/path node (layout/find node |(= ($ :type) :pane))))
-      (array/push panes (pane :id))
-    ))
-  )
-  (layout/set (layout/assoc layout parent-split-path (create-stack-node panes true)))
-)
+#   # panes in :b go in front
+#   (def panes @[])
+#   (each node [b a]
+#     (if (and (= (node :type) :margins) (= (node :border-fg) "stack")) (do
+#       (def node-panes (string-to-panes (node :border-bg)))
+#       (array/push panes ;node-panes)
+#     ) (do # child is a pane
+#       (def pane (layout/path node (layout/find node |(= ($ :type) :pane))))
+#       (array/push panes (pane :id))
+#     ))
+#   )
+#   (layout/set (layout/assoc layout parent-split-path (create-stack-node panes true)))
+# )
 
-(key/action
-  action/break-stacked-pane-up
-  "break stacked pane up"
-  # breaks the currently attached stack into a vertical split, where the front pane becomes the top child
-  (def layout (layout/get))
-  (def attach-path (layout/attach-path layout))
-  (def stack-path (layout/find-stack layout attach-path))
-  (if (nil? stack-path) (break))
+# (key/action
+#   action/break-stacked-pane-up
+#   "break stacked pane up"
+#   # breaks the currently attached stack into a vertical split, where the front pane becomes the top child
+#   (def layout (layout/get))
+#   (def attach-path (layout/attach-path layout))
+#   (def stack-path (layout/find-stack layout attach-path))
+#   (if (nil? stack-path) (break))
 
-  (def panes (as-> (layout/path layout stack-path) _
-    (_ :border-bg)
-    (string-to-panes _)
-  ))
+#   (def panes (as-> (layout/path layout stack-path) _
+#     (_ :border-bg)
+#     (string-to-panes _)
+#   ))
 
-  (def attached-pane (panes 0))
-  (array/remove panes 0)
-  (layout/set (layout/assoc layout stack-path {
-    :type :split
-    :vertical true
-    :border :none
-    :a (new-bordered-pane attached-pane :attach true)
-    :b (create-stack-node panes)
-  }))
-)
+#   (def attached-pane (panes 0))
+#   (array/remove panes 0)
+#   (layout/set (layout/assoc layout stack-path {
+#     :type :split
+#     :vertical true
+#     :border :none
+#     :a (new-bordered-pane attached-pane :attach true)
+#     :b (create-stack-node panes)
+#   }))
+# )
 
-(key/action
-  action/break-stacked-pane-down
-  "break stacked pane down"
-  # breaks the currently attached stack into a vertical split, where the front pane becomes the bottom child
-  (def layout (layout/get))
-  (def attach-path (layout/attach-path layout))
-  (def stack-path (layout/find-stack layout attach-path))
-  (if (nil? stack-path) (break))
+# (key/action
+#   action/break-stacked-pane-down
+#   "break stacked pane down"
+#   # breaks the currently attached stack into a vertical split, where the front pane becomes the bottom child
+#   (def layout (layout/get))
+#   (def attach-path (layout/attach-path layout))
+#   (def stack-path (layout/find-stack layout attach-path))
+#   (if (nil? stack-path) (break))
 
-  (def panes (as-> (layout/path layout stack-path) _
-    (_ :border-bg)
-    (string-to-panes _)
-  ))
+#   (def panes (as-> (layout/path layout stack-path) _
+#     (_ :border-bg)
+#     (string-to-panes _)
+#   ))
 
-  (def attached-pane (panes 0))
-  (array/remove panes 0)
-  (layout/set (layout/assoc layout stack-path {
-    :type :split
-    :vertical true
-    :border :none
-    :a (create-stack-node panes)
-    :b (new-bordered-pane attached-pane :attach true)
-  }))
-)
+#   (def attached-pane (panes 0))
+#   (array/remove panes 0)
+#   (layout/set (layout/assoc layout stack-path {
+#     :type :split
+#     :vertical true
+#     :border :none
+#     :a (create-stack-node panes)
+#     :b (new-bordered-pane attached-pane :attach true)
+#   }))
+# )
 
-(key/action
-  action/break-stacked-pane-left
-  "break stacked pane left"
-  # breaks the currently attached stack into a horizontal split, where the front pane becomes the left child
-  (def layout (layout/get))
-  (def attach-path (layout/attach-path layout))
-  (def stack-path (layout/find-stack layout attach-path))
-  (if (nil? stack-path) (break))
+# (key/action
+#   action/break-stacked-pane-left
+#   "break stacked pane left"
+#   # breaks the currently attached stack into a horizontal split, where the front pane becomes the left child
+#   (def layout (layout/get))
+#   (def attach-path (layout/attach-path layout))
+#   (def stack-path (layout/find-stack layout attach-path))
+#   (if (nil? stack-path) (break))
 
-  (def panes (as-> (layout/path layout stack-path) _
-    (_ :border-bg)
-    (string-to-panes _)
-  ))
+#   (def panes (as-> (layout/path layout stack-path) _
+#     (_ :border-bg)
+#     (string-to-panes _)
+#   ))
 
-  (def attached-pane (panes 0))
-  (array/remove panes 0)
-  (layout/set (layout/assoc layout stack-path {
-    :type :split
-    :vertical false
-    :border :none
-    :a (new-bordered-pane attached-pane :attach true)
-    :b (create-stack-node panes)
-  }))
-)
+#   (def attached-pane (panes 0))
+#   (array/remove panes 0)
+#   (layout/set (layout/assoc layout stack-path {
+#     :type :split
+#     :vertical false
+#     :border :none
+#     :a (new-bordered-pane attached-pane :attach true)
+#     :b (create-stack-node panes)
+#   }))
+# )
 
-(key/action
-  action/break-stacked-pane-right
-  "break stacked pane right"
-  # breaks the currently attached stack into a horizontal split, where the front pane becomes the right child
-  (def layout (layout/get))
-  (def attach-path (layout/attach-path layout))
-  (def stack-path (layout/find-stack layout attach-path))
-  (if (nil? stack-path) (break))
+# (key/action
+#   action/break-stacked-pane-right
+#   "break stacked pane right"
+#   # breaks the currently attached stack into a horizontal split, where the front pane becomes the right child
+#   (def layout (layout/get))
+#   (def attach-path (layout/attach-path layout))
+#   (def stack-path (layout/find-stack layout attach-path))
+#   (if (nil? stack-path) (break))
 
-  (def panes (as-> (layout/path layout stack-path) _
-    (_ :border-bg)
-    (string-to-panes _)
-  ))
+#   (def panes (as-> (layout/path layout stack-path) _
+#     (_ :border-bg)
+#     (string-to-panes _)
+#   ))
 
-  (def attached-pane (panes 0))
-  (array/remove panes 0)
-  (layout/set (layout/assoc layout stack-path {
-    :type :split
-    :vertical false
-    :border :none
-    :a (create-stack-node panes)
-    :b (new-bordered-pane attached-pane :attach true)
-  }))
-)
+#   (def attached-pane (panes 0))
+#   (array/remove panes 0)
+#   (layout/set (layout/assoc layout stack-path {
+#     :type :split
+#     :vertical false
+#     :border :none
+#     :a (create-stack-node panes)
+#     :b (new-bordered-pane attached-pane :attach true)
+#   }))
+# )
 
 # (key/action
 #   action/move-stacked-pane-right
@@ -709,7 +823,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (def layout (layout/get))
   (def attach-path (layout/attach-path layout))
   (def attach-id (layout/attach-id layout))
-  (def layout (layout/remove-pane layout attach-path))
+  (def layout (layout/remove-node layout attach-path))
 
   # (def tabs-path (layout/find-last layout attach-path |(= ($ :type) :tabs)))
   (layout/set (layout/new-tab layout (new-bordered-pane attach-id) :attach true))
@@ -1104,13 +1218,13 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["ctrl+alt+k"] action/move-up)
 (key/bind :root ["ctrl+alt+l"] action/focus-right)
 
-(key/bind :root ["ctrl+alt+u"] action/shift-stack-backward)
-(key/bind :root ["ctrl+alt+o"] action/shift-stack-forward)
-(key/bind :root ["ctrl+alt+shift+u"] action/reorder-stack-backward)
-(key/bind :root ["ctrl+alt+shift+o"] action/reorder-stack-forward)
+# (key/bind :root ["ctrl+alt+u"] action/shift-stack-backward)
+# (key/bind :root ["ctrl+alt+o"] action/shift-stack-forward)
+# (key/bind :root ["ctrl+alt+shift+u"] action/reorder-stack-backward)
+# (key/bind :root ["ctrl+alt+shift+o"] action/reorder-stack-forward)
 
 (key/bind :root ["ctrl+alt+n"] action/add-stacked-pane)
-(key/bind :root ["ctrl+alt+shift+n"] action/add-stacked-pane-empty)
+# (key/bind :root ["ctrl+alt+shift+n"] action/add-stacked-pane-empty)
 
 (key/bind :root ["ctrl+alt+d"] action/remove-layout-pane)
 (key/bind :root ["ctrl+alt+x"] action/kill-layout-pane)
@@ -1123,14 +1237,18 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["ctrl+7"] action/remove-layout-pane)
 (key/bind :root ["f7"] action/kill-layout-pane)
 (key/bind :root ["f5"] action/add-stacked-pane)
-(key/bind :root ["f10"] action/shift-stack-backward)
-(key/bind :root ["f11"] action/shift-stack-forward)
+# (key/bind :root ["f10"] action/shift-stack-backward)
+# (key/bind :root ["f11"] action/shift-stack-forward)
 
 (key/action
   action/init-client
   "should be run when a client initializes"
 
-  # (param/set :client :remove-pane-on-exit true)
+  # (param/set :client :pusheon-exit true)
+  (set-test-layout)
+)
+
+(defn hook/init []
   (set-test-layout)
 )
 
