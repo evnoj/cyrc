@@ -324,19 +324,27 @@
         (def num-leaves (length remaining-leaves))
 
         (if (= num-leaves 1)
-          (if attach
-            (layout/attach-first ((remaining-leaves 0) :node))
-            ((remaining-leaves 0) :node)
+          (do
+            (def node ((remaining-leaves 0) :node))
+            (if attach
+              (if (layout/type? :pane node)
+                (new-bordered-pane (node :id) :attach true)
+                (layout/attach-first node)
+              )
+              (if (layout/type? :pane node)
+                (new-bordered-pane (node :id))
+                node
+              )
+            )
           )
           (do
-            (if attach (do
-              (if (= leaf-index num-leaves) (-- leaf-index))
-              (def attached-leaf (remaining-leaves leaf-index))
-              (set (remaining-leaves leaf-index) (as?-> (remaining-leaves leaf-index) _
-                (assoc _ :node (layout/attach-first (_ :node)))
-                (assoc _ :active true)
-              ))
+            (if (= leaf-index num-leaves) (-- leaf-index))
+            (def attached-leaf (remaining-leaves leaf-index))
+            (set (remaining-leaves leaf-index) (as?-> (remaining-leaves leaf-index) _
+              (assoc _ :active true)
+              (assoc _ :node (if attach (layout/attach-first (_ :node)) (_ :node)))
             ))
+
             (assoc parent :leaves remaining-leaves)
           )
         )
@@ -570,20 +578,21 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
   (def layout (layout/get))
   (def layout (layout/remove-node layout (layout/attach-path layout) :attach true))
-  (def attach-path (layout/attach-path layout))
-  (def attach-id (layout/attach-id layout))
-  # ensure the pane has a border around it when it isn't in a stack, necessary when simplifying a stack
-  (def stack (layout/find-stack layout attach-path))
-  (when (not stack)
-    (def parent-path (trim attach-path))
-    (def parent (layout/path layout parent-path))
-    (when (not (layout/type? :borders parent))
-      (def layout (layout/assoc layout attach-path (new-bordered-pane attach-id :attach true)))
-      (layout/set layout)
-      (break)
-    )
-  )
   (layout/set layout)
+  # (def attach-path (layout/attach-path layout))
+  # (def attach-id (layout/attach-id layout))
+  # # ensure the pane has a border around it when it isn't in a stack, necessary when simplifying a stack
+  # (def stack (layout/find-stack layout attach-path))
+  # (when (not stack)
+  #   (def parent-path (trim attach-path))
+  #   (def parent (layout/path layout parent-path))
+  #   (when (not (layout/type? :borders parent))
+  #     (def layout (layout/assoc layout attach-path (new-bordered-pane attach-id :attach true)))
+  #     (layout/set layout)
+  #     (break)
+  #   )
+  # )
+  # (layout/set layout)
 )
 
 (key/action
@@ -630,8 +639,9 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (defn layout/get-stack-panes
   "given a stack node, get an array of the pane ids of its leaves"
   [stack]
-  # (map |(($ :node) :id) (stack :leaves))
-  (map |((layout/path $ (layout/find $ |(= ($ :type) :pane))) :id) (stack :leaves))
+  (map |(($ :node) :id) (stack :leaves))
+  (msg/log :info "got here")
+  # (map |((layout/path $ (layout/find $ |(= ($ :type) :pane))) :id) (stack :leaves))
 )
 
 (key/action
@@ -659,105 +669,54 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (layout/set (layout/assoc layout parent-split-path (layout/stack-from-panes panes :attach true)))
 )
 
-# (key/action
-#   action/break-stacked-pane-up
-#   "break stacked pane up"
-#   # breaks the currently attached stack into a vertical split, where the front pane becomes the top child
-#   (def layout (layout/get))
-#   (def attach-path (layout/attach-path layout))
-#   (def stack-path (layout/find-stack layout attach-path))
-#   (if (nil? stack-path) (break))
+(defn layout/break-attached-in-stack
+  "breaks the attached pane into a split if it is in a stack. if downright true, the attached pane will be placed down or right in the split, if false then up or left"
+  [layout vertical downright]
 
-#   (def panes (as-> (layout/path layout stack-path) _
-#     (_ :border-bg)
-#     (string-to-panes _)
-#   ))
+  (def attach-path (layout/attach-path layout))
+  (def stack-path (layout/find-stack layout attach-path))
+  (if (nil? stack-path) (break layout))
+  (def attach-id (layout/attach-id layout))
+  (def layout (layout/remove-node layout attach-path))
+  (def a (new-bordered-pane attach-id :attach true))
+  (def b (layout/path layout stack-path))
+  
+  (layout/assoc layout stack-path {
+    :type :split
+    :vertical vertical
+    :border :none
+    :a (if downright b a)
+    :b (if downright a b)
+  })
+)
 
-#   (def attached-pane (panes 0))
-#   (array/remove panes 0)
-#   (layout/set (layout/assoc layout stack-path {
-#     :type :split
-#     :vertical true
-#     :border :none
-#     :a (new-bordered-pane attached-pane :attach true)
-#     :b (create-stack-node panes)
-#   }))
-# )
+(key/action
+  action/break-stacked-pane-up
+  "break stacked pane up"
+  # breaks the currently attached stack into a vertical split, where the active pane becomes the top child
+  (layout/set (layout/break-attached-in-stack (layout/get) true false))
+)
 
-# (key/action
-#   action/break-stacked-pane-down
-#   "break stacked pane down"
-#   # breaks the currently attached stack into a vertical split, where the front pane becomes the bottom child
-#   (def layout (layout/get))
-#   (def attach-path (layout/attach-path layout))
-#   (def stack-path (layout/find-stack layout attach-path))
-#   (if (nil? stack-path) (break))
+(key/action
+  action/break-stacked-pane-down
+  "break stacked pane down"
+  # breaks the currently attached stack into a vertical split, where the front pane becomes the bottom child
+  (layout/set (layout/break-attached-in-stack (layout/get) true true))
+)
 
-#   (def panes (as-> (layout/path layout stack-path) _
-#     (_ :border-bg)
-#     (string-to-panes _)
-#   ))
+(key/action
+  action/break-stacked-pane-left
+  "break stacked pane left"
+  # breaks the currently attached stack into a horizontal split, where the front pane becomes the left child
+  (layout/set (layout/break-attached-in-stack (layout/get) false false))
+)
 
-#   (def attached-pane (panes 0))
-#   (array/remove panes 0)
-#   (layout/set (layout/assoc layout stack-path {
-#     :type :split
-#     :vertical true
-#     :border :none
-#     :a (create-stack-node panes)
-#     :b (new-bordered-pane attached-pane :attach true)
-#   }))
-# )
-
-# (key/action
-#   action/break-stacked-pane-left
-#   "break stacked pane left"
-#   # breaks the currently attached stack into a horizontal split, where the front pane becomes the left child
-#   (def layout (layout/get))
-#   (def attach-path (layout/attach-path layout))
-#   (def stack-path (layout/find-stack layout attach-path))
-#   (if (nil? stack-path) (break))
-
-#   (def panes (as-> (layout/path layout stack-path) _
-#     (_ :border-bg)
-#     (string-to-panes _)
-#   ))
-
-#   (def attached-pane (panes 0))
-#   (array/remove panes 0)
-#   (layout/set (layout/assoc layout stack-path {
-#     :type :split
-#     :vertical false
-#     :border :none
-#     :a (new-bordered-pane attached-pane :attach true)
-#     :b (create-stack-node panes)
-#   }))
-# )
-
-# (key/action
-#   action/break-stacked-pane-right
-#   "break stacked pane right"
-#   # breaks the currently attached stack into a horizontal split, where the front pane becomes the right child
-#   (def layout (layout/get))
-#   (def attach-path (layout/attach-path layout))
-#   (def stack-path (layout/find-stack layout attach-path))
-#   (if (nil? stack-path) (break))
-
-#   (def panes (as-> (layout/path layout stack-path) _
-#     (_ :border-bg)
-#     (string-to-panes _)
-#   ))
-
-#   (def attached-pane (panes 0))
-#   (array/remove panes 0)
-#   (layout/set (layout/assoc layout stack-path {
-#     :type :split
-#     :vertical false
-#     :border :none
-#     :a (create-stack-node panes)
-#     :b (new-bordered-pane attached-pane :attach true)
-#   }))
-# )
+(key/action
+  action/break-stacked-pane-right
+  "break stacked pane right"
+  # breaks the currently attached stack into a horizontal split, where the front pane becomes the right child
+  (layout/set (layout/break-attached-in-stack (layout/get) false true))
+)
 
 # (key/action
 #   action/move-stacked-pane-right
