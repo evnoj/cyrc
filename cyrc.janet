@@ -106,7 +106,7 @@
   (param/get :title :target (pane/current))
 )
 
-# ----- DEBUGGING ACTIONS -----
+# ----- DEBUGGING TOOLS -----
 (key/action
   action/print-path
   "print the attached node's path"
@@ -137,7 +137,70 @@
   (msg/log :info (struct-to-string (layout/get)))
 )
 
+(defn
+  pass-along-last
+  "Evaluates to its last argument. Intended to insert print debugging statements into ->> chains."
+  [& args]
+  (identity (args (- (length args) 1)))
+)
+
+(defn
+  pass-along-first
+  "Evaluates to its first argument. Intended to insert print debugging statements into -> chains."
+  [& args]
+  (identity (args (- (length args) 1)))
+)
+
 # ---- LAYOUT FUNCTIONS -----
+(defn
+  layout/find-last-with-path
+  ```Get the path to the last node in the path where (predicate node path) evaluates to true. The path passed to the predicate is the path to that node for the given layout.```
+  [layout path predicate]
+  # Must be a valid path and actually map to a node
+  (if (nil? path) (break nil))
+  (if (= (length path) 0) (break nil))
+  (if (nil? (layout/path layout path)) (break nil))
+
+  (def found-path (do
+    (def result (find
+      |(do
+        (def node-path (array/slice path ;$))
+        (predicate (layout/path layout node-path) node-path)
+      )
+      (->>
+        (range (length path))
+        (map |(tuple 0 $))
+        (reverse))
+    ))
+    # (msg/log :info (string "find last result: " result))
+    result
+  ))
+
+  (if (nil? found-path) (break nil))
+  (if (= (length found-path) 0) (break @[]))
+  (array/slice path ;found-path))
+
+(defn layout/path-extends?
+  ```checks if the first layout path is an extension or "within" the second path, assuming they are both paths from the same node```
+  [path-a path-b]
+
+  (defn extends
+    [a b &opt i]
+    (default i 0)
+
+    (if (>= i (length b)) (break true))
+
+    (if (not= (a i) (b i))
+      (break false)
+      (extends a b (+ i 1))
+    )
+  )
+  (def result (extends path-a path-b))
+  
+  # (msg/log :info (string "path-extends?\n does this path: " (array-to-string path-a) "\nextend this path: " (array-to-string path-b) "\nresult: " result))
+  result
+)
+
 (defn layout/search
   ```given a layout node and a predicate function that takes a layout node,
   return an array of every path to a node where the predicate evaluated to true
@@ -355,6 +418,88 @@
   (layout/assoc layout parent-path new-parent)
 )
 
+# follows implementation of layout/move in the source (`pkg/cy/boot/layout.janet`)
+(defn
+  layout/find-nearest-node
+  ```for the given layout and path, finds the path from the layout to the nearest pane or multi-pane container (stack, split, tabs) to the node at the given path along the given direction
+
+  node-types is an array of layout pane types to look for (ex. [:pane :stack] will find the nearest pane or stack)
+  ```
+  [layout path direction node-types]
+
+  (def is-axis (cond
+    (has-value? [:up :down] direction)
+      |(or
+        (and (layout/type? :split $) ($ :vertical))
+        (layout/type? :stack $))
+    (has-value? [:left :right] direction)
+      |(or
+        (and (layout/type? :split $) (not ($ :vertical)))
+        (layout/type? :tabs $))
+  ))
+
+  # (def is-axis |(or
+  #   (and (layout/type? :split $) (not ($ :vertical)))
+  #   (layout/type? :tabs $)
+  # ))
+
+  (def axis-successors (cond
+    (has-value? [:up :left] direction)
+      |(identity (reverse (layout/successors $)))
+    (has-value? [:down :right] direction)
+      |(identity (layout/successors $))
+  ))
+
+  # (def axis-successors |(
+  #   identity (layout/successors $)
+  # ))
+
+  (defn successors
+    [node]
+    (if (is-axis node)
+      (axis-successors node)
+      (layout/successors node)))
+
+  # We look for a path in the opposite direction of
+  # movement.
+  #
+  # Consider the case where a node has successors :a, :b:, and :c arranged
+  # along the axis of motion; if we're attached to a node on :b and moving in
+  # the direction of :a, we want `detached-successors` to return just [:a],
+  # since [:c] is "after" or "below" us.
+  # node-path is the path to the passed node from the given layout
+  (defn detached-successors [node node-path]
+    (->>
+      (successors node)
+      (reverse)
+      (take-while |(not (layout/path-extends? path @[;node-path ;$])))
+      (reverse)))
+
+  (defn check-node [node node-path]
+    (and (is-axis node) (> (length (detached-successors node node-path)) 0)))
+
+  # We first find the most recent ancestor to the node we're attached to that
+  # has a child tree that we can move to.
+  (def branch-path (layout/find-last-with-path layout path check-node))
+  (if (nil? branch-path) (break layout))
+
+  (def [next-path] (detached-successors (layout/path layout branch-path) branch-path))
+  (def full-path @[;branch-path ;next-path])
+
+  # Find the closest pane we can attach to in the direction of motion.
+  (defn
+    find-nearest
+    [node]
+    (if (has-value? node-types (node :type)) (break @[]))
+    (def [nearest] (successors node))
+    @[;nearest ;(find-nearest (layout/path node nearest))])
+
+  # (def return-path @[;full-path ;(find-nearest (layout/path layout full-path))])
+  # (msg/log :info (string "return path: " (array-to-string return-path)))
+  # return-path
+  @[;full-path ;(find-nearest (layout/path layout full-path))]
+)
+
 # ----- STACK IMPLEMENTATION -----
 # a stack stores an ordered list of panes, displaying the pane at the "front"
 # panes not in the front are each given a bar showing the pane's title above the front pane
@@ -414,7 +559,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (defn layout/add-stacked-pane
   ```
   given a layout, path, and pane node id, add a stacked pane.
-  If path is to a stack, the new pane is added to the stack.
+  If path is to a stack, the new pane is added to the stack in front of the active leaf.
   If path is not to a stack, that node is replaced with a stack,
   and any descendant panes of the node at `path` are put into the stack.
   `pane-id` is placed at the front of the stack.
@@ -437,13 +582,12 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   })
 
   (def stack (if (layout/type? :stack node) (do
+    (def active-index (find-index |($ :active) (node :leaves)))
     (def node (if attach
       (def node (assoc node :leaves (map |(assoc $ :active false) (node :leaves))))
       node
     ))
-
-    (array/push (node :leaves) new-leaf)
-    # (array/insert (node :leaves) 0 new-leaf)
+    (array/insert (node :leaves) (+ 1 active-index) new-leaf)
     node
   ) (do
     (def panes (map
@@ -640,7 +784,6 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   "given a stack node, get an array of the pane ids of its leaves"
   [stack]
   (map |(($ :node) :id) (stack :leaves))
-  (msg/log :info "got here")
   # (map |((layout/path $ (layout/find $ |(= ($ :type) :pane))) :id) (stack :leaves))
 )
 
@@ -669,13 +812,13 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (layout/set (layout/assoc layout parent-split-path (layout/stack-from-panes panes :attach true)))
 )
 
-(defn layout/break-attached-in-stack
+(defn layout/split-attached-in-stack
   "splits the attached pane into a split if it is in a stack. if downright true, the attached pane will be placed down or right in the split, if false then up or left"
   [layout vertical downright]
 
   (def attach-path (layout/attach-path layout))
   (def stack-path (layout/find-stack layout attach-path))
-  (if (nil? stack-path) (split layout))
+  (if (nil? stack-path) (break layout))
   (def attach-id (layout/attach-id layout))
   (def layout (layout/remove-node layout attach-path))
   (def a (new-bordered-pane attach-id :attach true))
@@ -718,21 +861,73 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (layout/set (layout/split-attached-in-stack (layout/get) false true))
 )
 
-(key/action
-  action/move-stacked-pane-right
-  "move stacked pane right"
+(defn layout/move-stacked-pane
+  ``
+  moves the active pane in the current stack directionally to another pane or stack
+  if moving to a pane, creates a new stack
+  if moving to a stack, the pane is placed in front of the currently active stack
+  direction is :up, :down, :left, or :right
+  ``
+  [layout direction]
 
-  (def layout (layout/get))
   (def attach-path (layout/attach-path layout))
   (def stack-path (layout/find-stack layout attach-path))
   (if (nil? stack-path) (break))
 
   (def pane (as-> (layout/path layout stack-path) _
-    (layout/get-stack-panes _)
-    (get _ (- (length _) 1))
+    # (layout/get-stack-panes _)
+    # (get _ (- (length _) 1))
+    (_ :leaves)
+    (find |($ :active) _)
+    (_ :node)
+    (_ :id)
   ))
 
-  (def layout (layout/remove-node layout attach-path))
+  (def move-path (layout/find-nearest-node layout stack-path direction [:pane :stack]))
+  # we want to replace a pane's borders node if it exists rather than the pane
+  (def move-node (layout/path layout move-path))
+  (when (layout/type? :pane move-node)
+    (def parent-path (trim move-path))
+    (def parent-node (layout/path layout parent-path))
+    (if (layout/type? :borders parent-node) (array/pop move-path))
+  )
+
+  (-> layout
+    (layout/remove-node attach-path)
+    (layout/add-stacked-pane move-path pane :attach true)
+  )
+)
+
+(key/action
+  action/move-stacked-pane-left
+  "move stacked pane left"
+
+  (def layout (layout/get))
+  (layout/set (activate-tab (layout/move-stacked-pane layout :left)))
+)
+
+(key/action
+  action/move-stacked-pane-right
+  "move stacked pane right"
+
+  (def layout (layout/get))
+  (layout/set (activate-tab (layout/move-stacked-pane layout :right)))
+)
+
+(key/action
+  action/move-stacked-pane-up
+  "move stacked pane up"
+
+  (def layout (layout/get))
+  (layout/set (activate-tab (layout/move-stacked-pane layout :up)))
+)
+
+(key/action
+  action/move-stacked-pane-down
+  "move stacked pane down"
+
+  (def layout (layout/get))
+  (layout/set (activate-tab (layout/move-stacked-pane layout :down)))
 )
 
 (key/action
@@ -1136,6 +1331,11 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["ctrl+alt+j"] action/move-down)
 (key/bind :root ["ctrl+alt+k"] action/move-up)
 (key/bind :root ["ctrl+alt+l"] action/focus-right)
+
+(key/bind :root ["ctrl+alt+shift+h"] action/move-stacked-pane-left)
+(key/bind :root ["ctrl+alt+shift+j"] action/move-stacked-pane-down)
+(key/bind :root ["ctrl+alt+shift+k"] action/move-stacked-pane-up)
+(key/bind :root ["ctrl+alt+shift+l"] action/move-stacked-pane-right)
 
 # (key/bind :root ["ctrl+alt+u"] action/shift-stack-backward)
 # (key/bind :root ["ctrl+alt+o"] action/shift-stack-forward)
