@@ -658,62 +658,73 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (layout/set new-layout)
 )
 
-(key/action
-  action/shift-stack-forward
-  "shift the current stack forward"
+(defn stack/rotate
+  ``
+  given a stack node, rotate it, maintaining the same index of the active leaf
+  returns the modified stack node
+  direction is :forward or :backward
+  if attach, attach to the pane in the active leaf
+  ``
+  [stack direction &opt &named attach]
 
-  (def layout (layout/get))
-  (def pane (layout/attach-id layout))
-  (def stack-path (layout/find-stack layout (layout/attach-path layout)))
-  (if (nil? stack-path) (break))
-  (def stack (layout/detach (layout/path layout stack-path)))
   (def leaves (stack :leaves))
   (def active-leaf-index (find-index |($ :active) leaves))
   (set (leaves active-leaf-index) (assoc (leaves active-leaf-index) :active false))
 
-  (def back-leaf (array/pop leaves))
-  (array/insert leaves 0 back-leaf)
-  (def active-leaf (as-> (leaves active-leaf-index) _
-    (assoc _ :active true)
-    (assoc _ :node (layout/attach-first (_ :node)))
-  ))
-  (set (leaves active-leaf-index) active-leaf)
-  (layout/set (layout/assoc layout stack-path (assoc stack :leaves leaves)))
+  (cond
+    (= direction :forward) (do
+      (def front-leaf (array/pop leaves))
+      (array/insert leaves 0 front-leaf)
+    )
+    (= direction :backward) (do
+      (def back-leaf (get leaves 0))
+      (array/remove leaves 0)
+      (array/push leaves back-leaf)
+    )
+  )
+
+  (def active-leaf (assoc (leaves active-leaf-index) :active true))
+  (set (leaves active-leaf-index) (if attach
+                                    active-leaf
+                                    (layout/attach-first (active-leaf :node))))
+
+  (assoc stack :leaves leaves)
 )
 
 (key/action
-  action/shift-stack-backward
-  "shift the current stack backward"
+  action/rotate-stack-forward
+  "rotate the current stack forward"
 
   (def layout (layout/get))
-  (def pane (layout/attach-id layout))
   (def stack-path (layout/find-stack layout (layout/attach-path layout)))
   (if (nil? stack-path) (break))
-  (def stack (layout/detach (layout/path layout stack-path)))
-  (def leaves (stack :leaves))
-  (def active-leaf-index (find-index |($ :active) leaves))
-  (set (leaves active-leaf-index) (assoc (leaves active-leaf-index) :active false))
+  (def stack (layout/path layout stack-path))
+  (layout/set (layout/assoc layout stack-path (stack/rotate stack :forward :attach true)))
+)
 
-  (def front-leaf (get leaves 0))
-  (array/remove leaves 0)
-  (array/push leaves front-leaf)
-  (def active-leaf (as-> (leaves active-leaf-index) _
-    (assoc _ :active true)
-    (assoc _ :node (layout/attach-first (_ :node)))
-  ))
-  (set (leaves active-leaf-index) active-leaf)
-  (layout/set (layout/assoc layout stack-path (assoc stack :leaves leaves)))
+(key/action
+  action/rotate-stack-backward
+  "rotate the current stack backward"
+
+  (def layout (layout/get))
+  (def stack-path (layout/find-stack layout (layout/attach-path layout)))
+  (if (nil? stack-path) (break))
+  (def stack (layout/path layout stack-path))
+  (layout/set (layout/assoc layout stack-path (stack/rotate stack :backward :attach true)))
 )
 
 # (key/action
 #   action/reorder-stack-forward
-#   "reorder the current stack forward. Like shift-stack-forward, but leaves the front pane at the front. A way to reposition the front pane in the stack ordering."
+#   "reorder the current stack forward. Like shift-stack-forward, but leaves the active leaf in place. A way to reposition the active leaf in the stack ordering."
 
 #   (def layout (layout/get))
 #   (def pane (layout/attach-id layout))
 #   (def stack-path (layout/find-stack layout (layout/attach-path layout)))
 #   (if (nil? stack-path) (break))
-#   (def panes (string-to-panes (get (layout/path layout stack-path) :border-bg)))
+#   (def leaves (stack :leaves))
+#   (def active-leaf-index (find-index |($ :active) leaves))
+#   (set (leaves active-leaf-index) (assoc (leaves active-leaf-index) :active false))
+
 #   (def second-front-pane (get panes 1))
 #   (array/remove panes 1)
 #   (array/push panes second-front-pane)
@@ -1392,8 +1403,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["ctrl+alt+shift+k"] action/move-stacked-pane-up)
 (key/bind :root ["ctrl+alt+shift+l"] action/move-stacked-pane-right)
 
-(key/bind :root ["ctrl+alt+u"] action/shift-stack-backward)
-(key/bind :root ["ctrl+alt+o"] action/shift-stack-forward)
+(key/bind :root ["ctrl+alt+u"] action/rotate-stack-backward)
+(key/bind :root ["ctrl+alt+o"] action/rotate-stack-forward)
 # (key/bind :root ["ctrl+alt+shift+u"] action/reorder-stack-backward)
 # (key/bind :root ["ctrl+alt+shift+o"] action/reorder-stack-forward)
 
@@ -1411,8 +1422,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["ctrl+7"] action/remove-layout-pane)
 (key/bind :root ["f7"] action/kill-layout-pane)
 (key/bind :root ["f5"] action/add-stacked-pane)
-(key/bind :root ["f10"] action/shift-stack-backward)
-(key/bind :root ["f11"] action/shift-stack-forward)
+(key/bind :root ["f10"] action/rotate-stack-backward)
+(key/bind :root ["f11"] action/rotate-stack-forward)
 
 (key/action
   action/init-client
