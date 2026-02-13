@@ -660,7 +660,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 (defn stack/rotate
   ``
-  given a stack node, rotate it, maintaining the same index of the active leaf
+  given a stack node, rotate it.
+  If there is an active leaf, maintains its same index
   returns the modified stack node
   direction is :forward or :backward
   if attach, attach to the pane in the active leaf
@@ -668,8 +669,11 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   [stack direction &opt &named attach]
 
   (def leaves (stack :leaves))
+
   (def active-leaf-index (find-index |($ :active) leaves))
-  (set (leaves active-leaf-index) (assoc (leaves active-leaf-index) :active false))
+  (if active-leaf-index (upscope
+    (set (leaves active-leaf-index) (assoc (leaves active-leaf-index) :active false))
+  ))
 
   (cond
     (= direction :forward) (do
@@ -683,10 +687,12 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
     )
   )
 
-  (def active-leaf (assoc (leaves active-leaf-index) :active true))
-  (set (leaves active-leaf-index) (if attach
-                                    active-leaf
-                                    (layout/attach-first (active-leaf :node))))
+  (if active-leaf-index (do
+    (def active-leaf (assoc (leaves active-leaf-index) :active true))
+    (set (leaves active-leaf-index) (if attach
+                                      active-leaf
+                                      (layout/attach-first (active-leaf :node))))
+  ))
 
   (assoc stack :leaves leaves)
 )
@@ -713,37 +719,47 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (layout/set (layout/assoc layout stack-path (stack/rotate stack :backward :attach true)))
 )
 
-# (key/action
-#   action/reorder-stack-forward
-#   "reorder the current stack forward. Like shift-stack-forward, but leaves the active leaf in place. A way to reposition the active leaf in the stack ordering."
+(key/action
+  action/reorder-stack-forward
+  "reorder the current stack forward. Like shift-stack-forward, but leaves the active leaf in place. A way to reposition the active leaf in the stack ordering."
 
-#   (def layout (layout/get))
-#   (def pane (layout/attach-id layout))
-#   (def stack-path (layout/find-stack layout (layout/attach-path layout)))
-#   (if (nil? stack-path) (break))
-#   (def leaves (stack :leaves))
-#   (def active-leaf-index (find-index |($ :active) leaves))
-#   (set (leaves active-leaf-index) (assoc (leaves active-leaf-index) :active false))
+  (def layout (layout/get))
+  (def stack-path (layout/find-stack layout (layout/attach-path layout)))
+  (if (nil? stack-path) (break))
 
-#   (def second-front-pane (get panes 1))
-#   (array/remove panes 1)
-#   (array/push panes second-front-pane)
-#   (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
-# )
+  (def stack (layout/path layout stack-path))
+  (def leaves (stack :leaves))
+  (def active-leaf-index (find-index |($ :active) leaves))
+  (def active-leaf (leaves active-leaf-index))
+  (array/remove leaves active-leaf-index)
 
-# (key/action
-#   action/reorder-stack-backward
-#   "reorder the current stack backward. Like shift-stack-backward, but leaves the front pane at the front. A way to reposition the front pane in the stack ordering."
+  (def stack (stack/rotate {:type :stack :leaves leaves} :forward))
+  (def leaves (stack :leaves))
+  (array/insert leaves active-leaf-index active-leaf)
 
-#   (def layout (layout/get))
-#   (def pane (layout/attach-id layout))
-#   (def stack-path (layout/find-stack layout (layout/attach-path layout)))
-#   (if (nil? stack-path) (break))
-#   (def panes (string-to-panes (get (layout/path layout stack-path) :border-bg)))
-#   (def back-pane (array/pop panes))
-#   (array/insert panes 1 back-pane)
-#   (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
-# )
+  (layout/set (layout/assoc layout stack-path stack))
+)
+
+(key/action
+  action/reorder-stack-backward
+  "reorder the current stack backward. Like shift-stack-forward, but leaves the active leaf in place. A way to reposition the active leaf in the stack ordering."
+
+  (def layout (layout/get))
+  (def stack-path (layout/find-stack layout (layout/attach-path layout)))
+  (if (nil? stack-path) (break))
+
+  (def stack (layout/path layout stack-path))
+  (def leaves (stack :leaves))
+  (def active-leaf-index (find-index |($ :active) leaves))
+  (def active-leaf (leaves active-leaf-index))
+  (array/remove leaves active-leaf-index)
+
+  (def stack (stack/rotate {:type :stack :leaves leaves} :backward))
+  (def leaves (stack :leaves))
+  (array/insert leaves active-leaf-index active-leaf)
+
+  (layout/set (layout/assoc layout stack-path stack))
+)
 
 (key/action
   action/remove-layout-pane
@@ -799,7 +815,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (if attach (set (leaves (- size 1))
     (as-> (leaves (- size 1)) _
       (assoc _ :active true)
-      # (layout/attach-first _)) # TODO figure out why this isn't working
+      # (layout/attach-first _)) # TODO figure out why this isn't working UPDATE: I know why, it's because attach-first doesn't work on leaves directly (because layout/successors doesn't), so instead of passing the leaf directly to layout/attach-first pass the leaf's :node
       (assoc _ :node {:type :pane :id ((_ :node) :id) :attached true}))
   ))
 
