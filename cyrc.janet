@@ -658,20 +658,52 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (layout/set new-layout)
 )
 
-# (key/action
-#   action/shift-stack-forward
-#   "shift the current stack forward"
+(key/action
+  action/shift-stack-forward
+  "shift the current stack forward"
 
-#   (def layout (layout/get))
-#   (def pane (layout/attach-id layout))
-#   (def stack-path (layout/find-stack layout (layout/attach-path layout)))
-#   (if (nil? stack-path) (break))
-#   (def panes (string-to-panes (get (layout/path layout stack-path) :border-bg)))
-#   (def front-pane (get panes 0))
-#   (array/remove panes 0)
-#   (array/push panes front-pane)
-#   (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
-# )
+  (def layout (layout/get))
+  (def pane (layout/attach-id layout))
+  (def stack-path (layout/find-stack layout (layout/attach-path layout)))
+  (if (nil? stack-path) (break))
+  (def stack (layout/detach (layout/path layout stack-path)))
+  (def leaves (stack :leaves))
+  (def active-leaf-index (find-index |($ :active) leaves))
+  (set (leaves active-leaf-index) (assoc (leaves active-leaf-index) :active false))
+
+  (def back-leaf (array/pop leaves))
+  (array/insert leaves 0 back-leaf)
+  (def active-leaf (as-> (leaves active-leaf-index) _
+    (assoc _ :active true)
+    (assoc _ :node (layout/attach-first (_ :node)))
+  ))
+  (set (leaves active-leaf-index) active-leaf)
+  (layout/set (layout/assoc layout stack-path (assoc stack :leaves leaves)))
+)
+
+(key/action
+  action/shift-stack-backward
+  "shift the current stack backward"
+
+  (def layout (layout/get))
+  (def pane (layout/attach-id layout))
+  (def stack-path (layout/find-stack layout (layout/attach-path layout)))
+  (if (nil? stack-path) (break))
+  (def stack (layout/detach (layout/path layout stack-path)))
+  (def leaves (stack :leaves))
+  (def active-leaf-index (find-index |($ :active) leaves))
+  (set (leaves active-leaf-index) (assoc (leaves active-leaf-index) :active false))
+
+  (def front-leaf (get leaves 0))
+  (array/remove leaves 0)
+  (array/push leaves front-leaf)
+  (def active-leaf (as-> (leaves active-leaf-index) _
+    (assoc _ :active true)
+    (assoc _ :node (layout/attach-first (_ :node)))
+  ))
+  (set (leaves active-leaf-index) active-leaf)
+  (layout/set (layout/assoc layout stack-path (assoc stack :leaves leaves)))
+)
 
 # (key/action
 #   action/reorder-stack-forward
@@ -685,20 +717,6 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 #   (def second-front-pane (get panes 1))
 #   (array/remove panes 1)
 #   (array/push panes second-front-pane)
-#   (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
-# )
-
-# (key/action
-#   action/shift-stack-backward
-#   "shift the current stack backward"
-
-#   (def layout (layout/get))
-#   (def pane (layout/attach-id layout))
-#   (def stack-path (layout/find-stack layout (layout/attach-path layout)))
-#   (if (nil? stack-path) (break))
-#   (def panes (string-to-panes (get (layout/path layout stack-path) :border-bg)))
-#   (def back-pane (array/pop panes))
-#   (array/insert panes 0 back-pane)
 #   (layout/set (layout/assoc layout stack-path (create-stack-node panes true)))
 # )
 
@@ -785,6 +803,43 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   [stack]
   (map |(($ :node) :id) (stack :leaves))
   # (map |((layout/path $ (layout/find $ |(= ($ :type) :pane))) :id) (stack :leaves))
+)
+
+(defn layout/stack-from-panes
+  ``
+  given an array of pane IDs, create a stack node with leaves corresponding to those panes, where later panes are in front of/below earlier panes.
+  active-leaf is the index of the leaf that should be active. Defaults to the last pane.
+  attach specifies whether to attach to the pane in the active leaf. Defaults to false.
+  ``
+  [panes &opt &named active-leaf attach]
+  (default active-leaf (- (length panes) 1))
+  (default attach false)
+
+  (def leaves (map |(
+    {
+      :title pane-border-title
+      :node {
+        :type :pane
+        :id $
+      }
+    }
+  ) panes))
+
+  (set (leaves active-leaf) (assoc (leaves active-leaf) :active true))
+
+  (when attach
+    (var pane (panes active-leaf))
+    (set (leaves active-leaf) (assoc (leaves active-leaf) :node {
+      :type :pane
+      :id :pane
+      :attached true
+    }))
+  )
+
+  {
+    :type :stack
+    :leaves leaves
+  }
 )
 
 (key/action
@@ -1337,8 +1392,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["ctrl+alt+shift+k"] action/move-stacked-pane-up)
 (key/bind :root ["ctrl+alt+shift+l"] action/move-stacked-pane-right)
 
-# (key/bind :root ["ctrl+alt+u"] action/shift-stack-backward)
-# (key/bind :root ["ctrl+alt+o"] action/shift-stack-forward)
+(key/bind :root ["ctrl+alt+u"] action/shift-stack-backward)
+(key/bind :root ["ctrl+alt+o"] action/shift-stack-forward)
 # (key/bind :root ["ctrl+alt+shift+u"] action/reorder-stack-backward)
 # (key/bind :root ["ctrl+alt+shift+o"] action/reorder-stack-forward)
 
@@ -1356,8 +1411,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["ctrl+7"] action/remove-layout-pane)
 (key/bind :root ["f7"] action/kill-layout-pane)
 (key/bind :root ["f5"] action/add-stacked-pane)
-# (key/bind :root ["f10"] action/shift-stack-backward)
-# (key/bind :root ["f11"] action/shift-stack-forward)
+(key/bind :root ["f10"] action/shift-stack-backward)
+(key/bind :root ["f11"] action/shift-stack-forward)
 
 (key/action
   action/init-client
