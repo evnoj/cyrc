@@ -423,6 +423,7 @@
   layout/find-nearest-node
   ```for the given layout and path, finds the path from the layout to the nearest pane or multi-pane container (stack, split, tabs) to the node at the given path along the given direction
 
+  direction is :up, :down, :left, or :right
   node-types is an array of layout pane types to look for (ex. [:pane :stack] will find the nearest pane or stack)
   ```
   [layout path direction node-types]
@@ -438,21 +439,12 @@
         (layout/type? :tabs $))
   ))
 
-  # (def is-axis |(or
-  #   (and (layout/type? :split $) (not ($ :vertical)))
-  #   (layout/type? :tabs $)
-  # ))
-
   (def axis-successors (cond
     (has-value? [:up :left] direction)
       |(identity (reverse (layout/successors $)))
     (has-value? [:down :right] direction)
       |(identity (layout/successors $))
   ))
-
-  # (def axis-successors |(
-  #   identity (layout/successors $)
-  # ))
 
   (defn successors
     [node]
@@ -1329,63 +1321,113 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   )
 )
 
+(defn layout/move-focus
+  ``
+  given a layout and a direction, detach the attached pane and attach to the nearest pane or stack in the given direction
+  returns the modified layout
+  if attaching to a stack, attaches to the stack's active leaf
+  direction is :up, :down, :left, or :right
+  ``
+  [layout direction]
+
+  (def attach-path (layout/attach-path layout))
+  (def nearest-path (layout/find-nearest-node layout attach-path direction [:pane :stack]))
+
+  (def nearest-node (layout/path layout nearest-path))
+
+  (as-> layout _
+    (layout/detach _)
+    (cond
+      (layout/type? :pane nearest-node)
+        (layout/attach _ nearest-path)
+      (layout/type? :stack nearest-node)
+        (do
+          # (def stack nearest-node)
+          (def leaves (nearest-node :leaves))
+          (def active-leaf-index (find-index |($ :active) leaves))
+          (def active-leaf (leaves active-leaf-index))
+          (def pane-path (layout/find (active-leaf :node) |(layout/type? :pane $)))
+          (layout/attach _ [;nearest-path :leaves active-leaf-index :node ;pane-path])
+        )
+    )
+    (activate-tab _)
+  )
+)
 
 (key/action
   action/focus-right
   "focus the pane to the right, inc. across tabs"
 
-  (def layout-current (layout/get))
-  (def layout-moved (layout/move-right layout-current))
+  (def layout (layout/get))
+  (layout/set (layout/move-focus layout :right))
+  # (def layout-current (layout/get))
+  # (def layout-moved (layout/move-right layout-current))
 
-  # if layout unchanged, try to switch tabs
-  (if (= layout-current layout-moved)
-    (do
-      (def layout-pre-tab-switch (layout/get))
-      (action/next-tab)
-      (var layout-post-tab-switch (layout/get))
+  # # if layout unchanged, try to switch tabs
+  # (if (= layout-current layout-moved)
+  #   (do
+  #     (def layout-pre-tab-switch (layout/get))
+  #     (action/next-tab)
+  #     (var layout-post-tab-switch (layout/get))
 
-      # if tabs switched, move to the leftmost pane in the new tab
-      (if (not= layout-pre-tab-switch layout-post-tab-switch)
-        (while true
-          (def new-layout-post-tab-switch (layout/move-left layout-post-tab-switch))
-          (if (= layout-post-tab-switch new-layout-post-tab-switch)
-            (break)
-            (set layout-post-tab-switch new-layout-post-tab-switch)
-          )
-        )
-      )
-      (layout/set layout-post-tab-switch)
-    )
-    (layout/set layout-moved)
-  )
+  #     # if tabs switched, move to the leftmost pane in the new tab
+  #     (if (not= layout-pre-tab-switch layout-post-tab-switch)
+  #       (while true
+  #         (def new-layout-post-tab-switch (layout/move-left layout-post-tab-switch))
+  #         (if (= layout-post-tab-switch new-layout-post-tab-switch)
+  #           (break)
+  #           (set layout-post-tab-switch new-layout-post-tab-switch)
+  #         )
+  #       )
+  #     )
+  #     (layout/set layout-post-tab-switch)
+  #   )
+  #   (layout/set layout-moved)
+  # )
 )
 
 (key/action
   action/focus-left
   "focus the pane to the left inc. across tabs"
 
-  (def layout-current (layout/get))
-  (def layout-moved (layout/move-left layout-current))
+  (def layout (layout/get))
+  (layout/set (layout/move-focus layout :left))
+  # (def layout-current (layout/get))
+  # (def layout-moved (layout/move-left layout-current))
 
-  (if (= layout-current layout-moved)
-    (do
-      (def layout-pre-tab-switch (layout/get))
-      (action/prev-tab)
-      (var layout-post-tab-switch (layout/get))
+  # (if (= layout-current layout-moved)
+  #   (do
+  #     (def layout-pre-tab-switch (layout/get))
+  #     (action/prev-tab)
+  #     (var layout-post-tab-switch (layout/get))
 
-      (if (not= layout-pre-tab-switch layout-post-tab-switch)
-        (while true
-          (def new-layout-post-tab-switch (layout/move-right layout-post-tab-switch))
-          (if (= layout-post-tab-switch new-layout-post-tab-switch)
-            (break)
-            (set layout-post-tab-switch new-layout-post-tab-switch)
-          )
-        )
-      )
-      (layout/set layout-post-tab-switch)
-    )
-    (layout/set layout-moved)
-  )
+  #     (if (not= layout-pre-tab-switch layout-post-tab-switch)
+  #       (while true
+  #         (def new-layout-post-tab-switch (layout/move-right layout-post-tab-switch))
+  #         (if (= layout-post-tab-switch new-layout-post-tab-switch)
+  #           (break)
+  #           (set layout-post-tab-switch new-layout-post-tab-switch)
+  #         )
+  #       )
+  #     )
+  #     (layout/set layout-post-tab-switch)
+  #   )
+  #   (layout/set layout-moved)
+  # )
+)
+
+(key/action
+  action/focus-up
+  "focus up"
+  (def layout (layout/get))
+  (layout/set (layout/move-focus layout :up))
+)
+
+(key/action
+  action/focus-down
+  "focus down"
+  (def layout (layout/get))
+  (layout/set (layout/move-focus layout :down))
 )
 
 (key/action
@@ -1421,8 +1463,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 (key/bind :root ["ctrl+alt+u"] action/rotate-stack-backward)
 (key/bind :root ["ctrl+alt+o"] action/rotate-stack-forward)
-# (key/bind :root ["ctrl+alt+shift+u"] action/reorder-stack-backward)
-# (key/bind :root ["ctrl+alt+shift+o"] action/reorder-stack-forward)
+(key/bind :root ["ctrl+alt+shift+u"] action/reorder-stack-backward)
+(key/bind :root ["ctrl+alt+shift+o"] action/reorder-stack-forward)
 
 (key/bind :root ["ctrl+alt+n"] action/add-stacked-pane)
 (key/bind :root ["ctrl+alt+shift+n"] action/add-stacked-pane-empty)
