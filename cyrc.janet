@@ -423,6 +423,8 @@
   layout/find-nearest-node
   ```for the given layout and path, finds the path from the layout to the nearest pane or multi-pane container (stack, split, tabs) to the node at the given path along the given direction
 
+  returns nil if none was found
+
   direction is :up, :down, :left, or :right
   node-types is an array of layout pane types to look for (ex. [:pane :stack] will find the nearest pane or stack)
   ```
@@ -452,9 +454,7 @@
       (axis-successors node)
       (layout/successors node)))
 
-  # We look for a path in the opposite direction of
-  # movement.
-  #
+  # We look for a path in the opposite direction of movement.
   # Consider the case where a node has successors :a, :b:, and :c arranged
   # along the axis of motion; if we're attached to a node on :b and moving in
   # the direction of :a, we want `detached-successors` to return just [:a],
@@ -473,7 +473,7 @@
   # We first find the most recent ancestor to the node we're attached to that
   # has a child tree that we can move to.
   (def branch-path (layout/find-last-with-path layout path check-node))
-  (if (nil? branch-path) (break layout))
+  (if (nil? branch-path) (break nil))
 
   (def [next-path] (detached-successors (layout/path layout branch-path) branch-path))
   (def full-path @[;branch-path ;next-path])
@@ -486,9 +486,6 @@
     (def [nearest] (successors node))
     @[;nearest ;(find-nearest (layout/path node nearest))])
 
-  # (def return-path @[;full-path ;(find-nearest (layout/path layout full-path))])
-  # (msg/log :info (string "return path: " (array-to-string return-path)))
-  # return-path
   @[;full-path ;(find-nearest (layout/path layout full-path))]
 )
 
@@ -1332,6 +1329,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
   (def attach-path (layout/attach-path layout))
   (def nearest-path (layout/find-nearest-node layout attach-path direction [:pane :stack]))
+  (if (nil? nearest-path) (break layout))
 
   (def nearest-node (layout/path layout nearest-path))
 
@@ -1340,15 +1338,13 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
     (cond
       (layout/type? :pane nearest-node)
         (layout/attach _ nearest-path)
-      (layout/type? :stack nearest-node)
-        (do
-          # (def stack nearest-node)
-          (def leaves (nearest-node :leaves))
-          (def active-leaf-index (find-index |($ :active) leaves))
-          (def active-leaf (leaves active-leaf-index))
-          (def pane-path (layout/find (active-leaf :node) |(layout/type? :pane $)))
-          (layout/attach _ [;nearest-path :leaves active-leaf-index :node ;pane-path])
-        )
+      (layout/type? :stack nearest-node) (do
+        (def leaves (nearest-node :leaves))
+        (def active-leaf-index (find-index |($ :active) leaves))
+        (def active-leaf (leaves active-leaf-index))
+        (def pane-path (layout/find (active-leaf :node) |(layout/type? :pane $)))
+        (layout/attach _ [;nearest-path :leaves active-leaf-index :node ;pane-path])
+      )
     )
     (activate-tab _)
   )
@@ -1360,30 +1356,6 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
   (def layout (layout/get))
   (layout/set (layout/move-focus layout :right))
-  # (def layout-current (layout/get))
-  # (def layout-moved (layout/move-right layout-current))
-
-  # # if layout unchanged, try to switch tabs
-  # (if (= layout-current layout-moved)
-  #   (do
-  #     (def layout-pre-tab-switch (layout/get))
-  #     (action/next-tab)
-  #     (var layout-post-tab-switch (layout/get))
-
-  #     # if tabs switched, move to the leftmost pane in the new tab
-  #     (if (not= layout-pre-tab-switch layout-post-tab-switch)
-  #       (while true
-  #         (def new-layout-post-tab-switch (layout/move-left layout-post-tab-switch))
-  #         (if (= layout-post-tab-switch new-layout-post-tab-switch)
-  #           (break)
-  #           (set layout-post-tab-switch new-layout-post-tab-switch)
-  #         )
-  #       )
-  #     )
-  #     (layout/set layout-post-tab-switch)
-  #   )
-  #   (layout/set layout-moved)
-  # )
 )
 
 (key/action
@@ -1392,33 +1364,12 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
   (def layout (layout/get))
   (layout/set (layout/move-focus layout :left))
-  # (def layout-current (layout/get))
-  # (def layout-moved (layout/move-left layout-current))
-
-  # (if (= layout-current layout-moved)
-  #   (do
-  #     (def layout-pre-tab-switch (layout/get))
-  #     (action/prev-tab)
-  #     (var layout-post-tab-switch (layout/get))
-
-  #     (if (not= layout-pre-tab-switch layout-post-tab-switch)
-  #       (while true
-  #         (def new-layout-post-tab-switch (layout/move-right layout-post-tab-switch))
-  #         (if (= layout-post-tab-switch new-layout-post-tab-switch)
-  #           (break)
-  #           (set layout-post-tab-switch new-layout-post-tab-switch)
-  #         )
-  #       )
-  #     )
-  #     (layout/set layout-post-tab-switch)
-  #   )
-  #   (layout/set layout-moved)
-  # )
 )
 
 (key/action
   action/focus-up
   "focus up"
+
   (def layout (layout/get))
   (layout/set (layout/move-focus layout :up))
 )
@@ -1426,6 +1377,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/action
   action/focus-down
   "focus down"
+
   (def layout (layout/get))
   (layout/set (layout/move-focus layout :down))
 )
@@ -1452,8 +1404,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["ctrl+alt+p"] action/command-palette)
 
 (key/bind :root ["ctrl+alt+h"] action/focus-left)
-(key/bind :root ["ctrl+alt+j"] action/move-down)
-(key/bind :root ["ctrl+alt+k"] action/move-up)
+(key/bind :root ["ctrl+alt+j"] action/focus-down)
+(key/bind :root ["ctrl+alt+k"] action/focus-up)
 (key/bind :root ["ctrl+alt+l"] action/focus-right)
 
 (key/bind :root ["ctrl+alt+shift+h"] action/move-stacked-pane-left)
@@ -1474,8 +1426,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 # for intial compatibility while I transition from zellij
 (key/bind :root ["f1"] action/focus-left)
-(key/bind :root ["f2"] action/move-down)
-(key/bind :root ["f3"] action/move-up)
+(key/bind :root ["f2"] action/focus-down)
+(key/bind :root ["f3"] action/focus-up)
 (key/bind :root ["f4"] action/focus-right)
 (key/bind :root ["ctrl+7"] action/remove-layout-pane)
 (key/bind :root ["f7"] action/kill-layout-pane)
