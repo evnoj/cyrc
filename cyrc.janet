@@ -87,6 +87,30 @@
   str
 )
 
+(defn array/rotate
+  ``
+  rotate an array. Modifies the input array, returning it.
+  direction is :left or :right
+  n is the number of times to rotate, default is 1
+  ``
+  [arr direction &opt n]
+  (cond
+    (= direction :left) (do
+      (for i 0 n
+        (def first (arr 0))
+        (array/remove arr 0)
+        (array/push arr first)
+      )
+    )
+    (= direction :right) (do
+      (for i 0 n
+        (array/insert arr 0 (array/pop arr))
+      )
+    )
+  )
+  arr
+)
+
 (defn trim
   "trim the last n elements from an array or tuple, returning a new tuple. n defaults to 1"
   [arrtup &opt n]
@@ -138,17 +162,145 @@
 )
 
 (defn
-  pass-along-last
-  "Evaluates to its last argument. Intended to insert print debugging statements into ->> chains."
-  [& args]
-  (identity (args (- (length args) 1)))
+  pass-->
+  ``
+  a function for doing side effects in a --> chain.
+  Takes two arguments, the 1st is a function that will be called by passing the 2nd.
+  Evaluates to the 2nd argument.
+  ``
+  [func arg]
+  # (identity (args (- (length args) 1)))
+  (func arg)
+  (identity arg)
 )
 
 (defn
-  pass-along-first
+  pass->
+  ``
+  a function for doing side effects in a -> chain.
+  Takes two arguments, the 2nd is a function that will be called by passing the 1st.
+  Evaluates to the 1st argument.
+  ``
+  [arg func]
+  # (identity (args (- (length args) 1)))
+  (func arg)
+  (identity arg)
+)
+
+(defn
+  pass-first
   "Evaluates to its first argument. Intended to insert print debugging statements into -> chains."
   [& args]
-  (identity (args (- (length args) 1)))
+  (identity (args 0))
+)
+
+(defn pretty-print
+  "Pretty print a Janet value with indentation for nested structures.
+  Returns a string representation suitable for printing."
+  [value]
+  
+  # ANSI color codes for rainbow colors (ROYGBIV)
+  (def rainbow-colors [
+    "\e[31m"  # Red
+    "\e[33m"  # Orange (yellow)
+    "\e[93m"  # Yellow (bright yellow)
+    "\e[32m"  # Green
+    "\e[34m"  # Blue
+    "\e[94m"  # Indigo (bright blue)
+    "\e[35m"  # Violet (magenta)
+  ])
+  (def reset-color "\e[0m")
+  
+  (defn make-indent
+    "Create indentation string with colored vertical bars"
+    [level]
+    (if (= level 0)
+      ""
+      (string/join
+        (map (fn [i]
+               (def color (get rainbow-colors (% i (length rainbow-colors))))
+               (string color "|" reset-color " "))
+             (range level))
+        "")))
+  
+  (defn pp-helper
+    "Recursive helper that tracks indentation level"
+    [v level]
+    (cond
+      # Handle nil
+      (nil? v)
+      "nil"
+      
+      # Handle booleans
+      (boolean? v)
+      (string v)
+      
+      # Handle numbers
+      (number? v)
+      (string v)
+      
+      # Handle strings - show with quotes
+      (string? v)
+      (string "\"" v "\"")
+      
+      # Handle keywords - include the colon prefix
+      (keyword? v)
+      (string ":" v)
+      
+      # Handle symbols
+      (symbol? v)
+      (string v)
+      
+      # Handle arrays and tuples
+      (or (array? v) (tuple? v))
+      (if (empty? v)
+        "[]"
+        (do
+          (def indent (make-indent (+ level 1)))
+          (def close-indent (make-indent level))
+          (def items (map |(pp-helper $ (+ level 1)) v))
+          # Add commas after all elements except the last
+          (def items-with-commas 
+            (array/concat 
+              (map |(string $ ",") (slice items 0 -1))
+              [(last items)]))
+          (string "[\n"
+                  indent
+                  (string/join items-with-commas (string "\n" indent))
+                  "\n" close-indent "]")))
+      
+      # Handle tables and structs
+      (or (table? v) (struct? v))
+      (if (empty? v)
+        "{}"
+        (do
+          (def indent (make-indent (+ level 1)))
+          (def close-indent (make-indent level))
+          (def pairs (pairs v))
+          (def items (map (fn [[k val]]
+                           (string (pp-helper k (+ level 1))
+                                   ": "
+                                   (pp-helper val (+ level 1))))
+                         pairs))
+          (string "{\n"
+                  indent
+                  (string/join items (string "\n" indent))
+                  "\n" close-indent "}")))
+      
+      # Default case - use describe
+      (describe v)))
+  
+  (pp-helper value 0))
+
+(defn pretty-log
+  "pretty-print every passed value to the log, with a newline before each"
+  [& args]
+  (def starr @[])
+  (each arg args (do
+    (array/push starr (pretty-print arg) "\n")
+  ))
+  (array/pop starr)
+  (msg/log :info (string "\n" ;starr))
 )
 
 # ---- LAYOUT FUNCTIONS -----
@@ -428,8 +580,12 @@
   direction is :up, :down, :left, or :right
   node-types is an array of layout pane types to look for (ex. [:pane :stack] will find the nearest pane or stack)
   ```
-  [layout path direction node-types]
+  [layout path direction node-types &opt &named wrap]
+  (default wrap false)
 
+  # a unary function that, given a node, returns a boolean that indicates whether the
+  # node is arranged along the axis in question.
+  # ex. when moving vertically, a vertical split would return true
   (def is-axis (cond
     (has-value? [:up :down] direction)
       |(or
@@ -441,6 +597,9 @@
         (layout/type? :tabs $))
   ))
 
+  # a unary function that, given a node where is-axis was true, returns the paths of
+  # all of the child nodes accessible from the node in the order of their appearance
+  # along the axis.
   (def axis-successors (cond
     (has-value? [:up :left] direction)
       |(identity (reverse (layout/successors $)))
@@ -463,6 +622,7 @@
   (defn detached-successors [node node-path]
     (->>
       (successors node)
+      (pass--> |(pretty-log $))
       (reverse)
       (take-while |(not (layout/path-extends? path @[;node-path ;$])))
       (reverse)))
@@ -476,6 +636,7 @@
   (if (nil? branch-path) (break nil))
 
   (def [next-path] (detached-successors (layout/path layout branch-path) branch-path))
+  (msg/log :info (array-to-string next-path))
   (def full-path @[;branch-path ;next-path])
 
   # Find the closest pane we can attach to in the direction of motion.
@@ -1328,7 +1489,10 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   [layout direction]
 
   (def attach-path (layout/attach-path layout))
-  (def nearest-path (layout/find-nearest-node layout attach-path direction [:pane :stack]))
+  # (def stack-path (layout/find-stack layout attach-path))
+  # (def attach-path (if stack-path stack-path attach-path))
+  (def nearest-path (layout/find-nearest-node layout attach-path direction [:pane]))
+  # (def nearest-path (layout/find-nearest-node layout attach-path direction [:pane :stack]))
   (if (nil? nearest-path) (break layout))
 
   (def nearest-node (layout/path layout nearest-path))
@@ -1346,7 +1510,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
         (layout/attach _ [;nearest-path :leaves active-leaf-index :node ;pane-path])
       )
     )
-    (activate-tab _)
+    (activate-tab (activate-stack-leaf _))
   )
 )
 
