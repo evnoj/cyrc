@@ -915,6 +915,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   ``
   [stack direction &opt &named attach]
 
+  (def stack (if attach (layout/detach stack) stack))
   (def leaves (stack :leaves))
 
   (def active-leaf-index (find-index |($ :active) leaves))
@@ -937,8 +938,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (if active-leaf-index (do
     (def active-leaf (assoc (leaves active-leaf-index) :active true))
     (set (leaves active-leaf-index) (if attach
-                                      active-leaf
-                                      (layout/attach-first (active-leaf :node))))
+                                      (assoc active-leaf :node (layout/attach-first (active-leaf :node)))
+                                      active-leaf))
   ))
 
   (assoc stack :leaves leaves)
