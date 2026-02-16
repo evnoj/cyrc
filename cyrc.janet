@@ -94,6 +94,8 @@
   n is the number of times to rotate, default is 1
   ``
   [arr direction &opt n]
+  (default n 1)
+
   (cond
     (= direction :left) (do
       (for i 0 n
@@ -107,6 +109,24 @@
         (array/insert arr 0 (array/pop arr))
       )
     )
+  )
+  arr
+)
+
+(defn rotate-while
+  ``
+  rotate an array while (pred array) is true. Modifies the input array, returning it.
+  if the array reaches a full rotation, stops evaluation and returns the array
+  direction is :left or :right
+  ``
+  [arr pred direction]
+
+  (var i 0)
+  (var len (length arr))
+  (while (pred arr)
+    (array/rotate arr direction)
+    (++ i)
+    (if (= i len) (break))
   )
   arr
 )
@@ -194,12 +214,11 @@
   (identity (args 0))
 )
 
-(defn pretty-print
+(defn pretty-string
   "Pretty print a Janet value with indentation for nested structures.
   Returns a string representation suitable for printing."
   [value]
   
-  # ANSI color codes for rainbow colors (ROYGBIV)
   (def rainbow-colors [
     "\e[31m"  # Red
     "\e[33m"  # Orange (yellow)
@@ -227,31 +246,24 @@
     "Recursive helper that tracks indentation level"
     [v level]
     (cond
-      # Handle nil
       (nil? v)
       "nil"
       
-      # Handle booleans
       (boolean? v)
       (string v)
       
-      # Handle numbers
       (number? v)
       (string v)
       
-      # Handle strings - show with quotes
       (string? v)
       (string "\"" v "\"")
       
-      # Handle keywords - include the colon prefix
       (keyword? v)
       (string ":" v)
       
-      # Handle symbols
       (symbol? v)
       (string v)
       
-      # Handle arrays and tuples
       (or (array? v) (tuple? v))
       (if (empty? v)
         "[]"
@@ -260,16 +272,19 @@
           (def close-indent (make-indent level))
           (def items (map |(pp-helper $ (+ level 1)) v))
           # Add commas after all elements except the last
+          (def len (length items))
           (def items-with-commas 
-            (array/concat 
-              (map |(string $ ",") (slice items 0 -1))
-              [(last items)]))
+            (map (fn [i item]
+                   (if (< i (- len 1))
+                     (string item ",")
+                     item))
+                 (range len)
+                 items))
           (string "[\n"
                   indent
                   (string/join items-with-commas (string "\n" indent))
                   "\n" close-indent "]")))
       
-      # Handle tables and structs
       (or (table? v) (struct? v))
       (if (empty? v)
         "{}"
@@ -287,17 +302,17 @@
                   (string/join items (string "\n" indent))
                   "\n" close-indent "}")))
       
-      # Default case - use describe
+      # default case
       (describe v)))
   
   (pp-helper value 0))
 
 (defn pretty-log
-  "pretty-print every passed value to the log, with a newline before each"
+  "pretty-print every passed value to the log, with a newline after each"
   [& args]
   (def starr @[])
   (each arg args (do
-    (array/push starr (pretty-print arg) "\n")
+    (array/push starr (pretty-string arg) "\n")
   ))
   (array/pop starr)
   (msg/log :info (string "\n" ;starr))
@@ -324,7 +339,60 @@
         (map |(tuple 0 $))
         (reverse))
     ))
-    # (msg/log :info (string "find last result: " result))
+    result
+  ))
+
+  (if (nil? found-path) (break nil))
+  (if (= (length found-path) 0) (break @[]))
+  (array/slice path ;found-path))
+
+(defn
+  layout/find-first
+  ```Get the path to the first node in the path where (predicate node path) evaluates to true. The path passed to the predicate is the path to that node for the given layout.```
+  [layout path predicate]
+  # Must be a valid path and actually map to a node
+  (if (nil? path) (break nil))
+  (if (= (length path) 0) (break nil))
+  (if (nil? (layout/path layout path)) (break nil))
+
+  (def found-path (do
+    (def result (find
+      |(do
+        (def node-path (array/slice path ;$))
+        (predicate (layout/path layout node-path))
+      )
+      (->>
+        (range (length path))
+        (map |(tuple 0 $))
+      )
+    ))
+    result
+  ))
+
+  (if (nil? found-path) (break nil))
+  (if (= (length found-path) 0) (break @[]))
+  (array/slice path ;found-path))
+
+(defn
+  layout/find-first-with-path
+  ```Get the path to the first node in the path where (predicate node path) evaluates to true. The path passed to the predicate is the path to that node for the given layout.```
+  [layout path predicate]
+  # Must be a valid path and actually map to a node
+  (if (nil? path) (break nil))
+  (if (= (length path) 0) (break nil))
+  (if (nil? (layout/path layout path)) (break nil))
+
+  (def found-path (do
+    (def result (find
+      |(do
+        (def node-path (array/slice path ;$))
+        (predicate (layout/path layout node-path) node-path)
+      )
+      (->>
+        (range (length path))
+        (map |(tuple 0 $))
+      )
+    ))
     result
   ))
 
@@ -579,12 +647,13 @@
 
   direction is :up, :down, :left, or :right
   node-types is an array of layout pane types to look for (ex. [:pane :stack] will find the nearest pane or stack)
+  if wrap, and no regular nearest node was found, will search for a node at the opposite end of the highest ancestor that is arranged along the given axis
   ```
   [layout path direction node-types &opt &named wrap]
   (default wrap false)
 
   # a unary function that, given a node, returns a boolean that indicates whether the
-  # node is arranged along the axis in question.
+  # node is arranged ale axis in question.
   # ex. when moving vertically, a vertical split would return true
   (def is-axis (cond
     (has-value? [:up :down] direction)
@@ -622,24 +691,52 @@
   (defn detached-successors [node node-path]
     (->>
       (successors node)
-      (pass--> |(pretty-log $))
       (reverse)
       (take-while |(not (layout/path-extends? path @[;node-path ;$])))
-      (reverse)))
+      (reverse)
+    )
+  )
+
+  (defn detached-successors-reverse [node node-path]
+    (->>
+      (successors node)
+      (take-while |(not (layout/path-extends? path @[;node-path ;$])))
+    )
+  )
 
   (defn check-node [node node-path]
     (and (is-axis node) (> (length (detached-successors node node-path)) 0)))
 
+  # (defn check-node-wrap [node node-path]
+  #   (and (is-axis node) (> (length (detached-successors-wrap node node-path)) 0)))
+
   # We first find the most recent ancestor to the node we're attached to that
   # has a child tree that we can move to.
-  (def branch-path (layout/find-last-with-path layout path check-node))
-  (if (nil? branch-path) (break nil))
+  (var branch-path (layout/find-last-with-path layout path check-node))
+  (var wrapped false)
 
-  (def [next-path] (detached-successors (layout/path layout branch-path) branch-path))
-  (msg/log :info (array-to-string next-path))
+  (cond
+    # if we didn't find an ancestor with a node to move to, done if not wrapping
+    (and (nil? branch-path) (not wrap))
+      (break)
+    # if wrapping, find the oldest ancestor arranged along the axis
+    (and (nil? branch-path) wrap)
+      (do
+        (set branch-path (layout/find-first layout path is-axis))
+        # no ancestor arranged along the axis was found
+        (if (nil? branch-path) (break))
+        (set wrapped true)
+      )
+  )
+
+  # if we are wrapping, we reverse the direction of detached successors
+  (def [next-path] (if wrapped
+    (detached-successors-reverse (layout/path layout branch-path) branch-path)
+    (detached-successors (layout/path layout branch-path) branch-path)
+  ))
   (def full-path @[;branch-path ;next-path])
 
-  # Find the closest pane we can attach to in the direction of motion.
+  # Find the closest node of the specified types
   (defn
     find-nearest
     [node]
@@ -1456,11 +1553,41 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   []
 
   (layout/set
+    # {
+    #   :type :tabs
+    #   :tabs @[
+    #     {
+    #       :name "taab 1"
+    #       :active true
+    #       :node {
+    #         :type :split
+    #         :vertical false
+    #         :border :none
+    #         :a (new-bordered-pane (shell/new) :attach true)
+    #         :b (new-bordered-pane (get-logs-pane) :title "  cy log")
+    #       }
+    #     }
+    #     {
+    #       :name "tab 2"
+    #       :node (new-bordered-pane (shell/new))
+    #     }
+    #   ]
+    # }
     {
       :type :tabs
       :tabs @[
         {
-          :name "taab 1"
+          :name "1"
+          :node {
+            :type :split
+            :vertical false
+            :border :none
+            :a (new-bordered-pane (shell/new))
+            :b (new-bordered-pane (get-logs-pane) :title "  cy log")
+          }
+        }
+        {
+          :name "2"
           :active true
           :node {
             :type :split
@@ -1471,8 +1598,24 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
           }
         }
         {
-          :name "tab 2"
-          :node (new-bordered-pane (shell/new))
+          :name "3"
+          :node {
+            :type :split
+            :vertical false
+            :border :none
+            :a (new-bordered-pane (shell/new))
+            :b (new-bordered-pane (get-logs-pane) :title "  cy log")
+          }
+        }
+        {
+          :name "4"
+          :node {
+            :type :split
+            :vertical false
+            :border :none
+            :a (new-bordered-pane (shell/new))
+            :b (new-bordered-pane (get-logs-pane) :title "  cy log")
+          }
         }
       ]
     }
@@ -1489,10 +1632,9 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   [layout direction]
 
   (def attach-path (layout/attach-path layout))
-  # (def stack-path (layout/find-stack layout attach-path))
-  # (def attach-path (if stack-path stack-path attach-path))
-  (def nearest-path (layout/find-nearest-node layout attach-path direction [:pane]))
-  # (def nearest-path (layout/find-nearest-node layout attach-path direction [:pane :stack]))
+  (def stack-path (layout/find-stack layout attach-path))
+  (def attach-path (if stack-path stack-path attach-path))
+  (def nearest-path (layout/find-nearest-node layout attach-path direction [:pane :stack]))
   (if (nil? nearest-path) (break layout))
 
   (def nearest-node (layout/path layout nearest-path))
