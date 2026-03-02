@@ -142,7 +142,10 @@
 (defn set-title
   [title]
   (def pane (pane/current))
-  (if pane (param/set pane :title title))
+  (if pane (do
+    (param/set pane :title title)
+    (layout/set (layout/get))
+  ))
 )
 
 (defn get-title
@@ -316,6 +319,15 @@
   ))
   (array/pop starr)
   (msg/log :info (string "\n" ;starr))
+)
+
+(key/action
+  action/print-bindings
+  "print the current bindings"
+
+  (def bindings (key/current))
+  # (pretty-log bindings)
+  (each binding bindings (pretty-log (describe (binding :function))))
 )
 
 # ---- LAYOUT FUNCTIONS -----
@@ -888,7 +900,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 (key/action
   action/add-stacked-pane-empty
-  "add a stacked pane that is empty in the current directory to the focused pane"
+  "add a stacked pane that is empty to the focused pane"
 
   (def layout (layout/get))
   (def path (layout/attach-path layout))
@@ -911,7 +923,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   If there is an active leaf, maintains its same index
   returns the modified stack node
   direction is :forward or :backward
-  if attach, attach to the pane in the active leaf
+  if attach, attach to the first pane in the active leaf
   ``
   [stack direction &opt &named attach]
 
@@ -969,7 +981,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 (key/action
   action/reorder-stack-forward
-  "reorder the current stack forward. Like shift-stack-forward, but leaves the active leaf in place. A way to reposition the active leaf in the stack ordering."
+  "reorder the current stack forward. Like rotate-stack-forward, but leaves the active leaf in place. A way to reposition the active leaf in the stack ordering."
 
   (def layout (layout/get))
   (def stack-path (layout/find-stack layout (layout/attach-path layout)))
@@ -990,7 +1002,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 (key/action
   action/reorder-stack-backward
-  "reorder the current stack backward. Like shift-stack-forward, but leaves the active leaf in place. A way to reposition the active leaf in the stack ordering."
+  "reorder the current stack backward. Like rotate-stack-forward, but leaves the active leaf in place. A way to reposition the active leaf in the stack ordering."
 
   (def layout (layout/get))
   (def stack-path (layout/find-stack layout (layout/attach-path layout)))
@@ -1473,35 +1485,73 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   )
 )
 
-(key/action
-  action/exit-mode
-  "exit the current mode"
+(defn exit-mode
+  []
 
   (if (nil? (param/get :mode :target :client)) (break)) # not in a mode
   (def restore-bindings (param/get :restore-bindings :target :client))
+  (def restore-actions (param/get :restore-actions :target :client))
   (param/set :client :restore-bindings nil)
+  (param/set :client :restore-actions nil)
   (param/set :client :mode nil)
 
   (key/unbind :root [])
   (each binding restore-bindings
     (key/bind :root (key-conv (get binding :sequence)) (get binding :function))
   )
+
+  (key/clear-actions)
+  (eachp [name value] restore-actions
+    (key/register-action name ;value)
+  )
+
+  (key/remove-action "action/exit-mode")
+
   (def layout (layout/get))
   (layout/set (get layout :node))
 )
 
 (defn enter-mode
-  "bindings: an arrtup of arrtups, where each nested arrtup has 2 elements: the 1st is the key sequence (also an arrtup), the 2nd the function to call"
-  [name &named exit-binding bindings &opt unbind-existing]
-  (default unbind-existing true)
+  ``
+  bindings: an arrtup of arrtups, where each nested arrtup has 2 elements: the 1st is the key sequence (also an arrtup), the 2nd the function to call
+  actions: a table where keys are action names and values are tuples where the first element is the docstring and the second is the function of the action
+  unbind-keys removes existing keybinds (restored when leaving mode), default true
+  remove-actions removes existing actions (restored when leaving mode), default false
+  keep-actions is an arrtup of action names that shouldn't be removed, has no effect if remove-actions is false
+  exit-func is a function that will be executed when exiting the mode
+  ``
+  [name &named &opt exit-binding bindings unbind-keys actions remove-actions keep-actions exit-func]
+  (default unbind-keys true)
+  (default remove-actions false)
+  (default exit-func (fn []))
 
   (param/set :client :mode name)
+
   (param/set :client :restore-bindings (key/current))
-  (if unbind-existing
+  (when unbind-keys
     (key/unbind :root [])
   )
-  (each binding bindings
-    (key/bind :root ;binding)
+  (when bindings
+    (each binding bindings
+      (key/bind :root ;binding)
+    )
+  )
+
+  (param/set :client :restore-actions (key/get-actions))
+  (when remove-actions
+    (key/clear-actions)
+  )
+  (when actions
+    (eachp [name value] actions
+      (key/register-action name ;value)
+    )
+  )
+
+  (key/action
+    action/exit-mode
+    "exit the current mode"
+
+    (exit-mode)
   )
   (key/bind :root exit-binding action/exit-mode)
 
@@ -1520,8 +1570,13 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
     :exit-binding ["esc"]
     :bindings [
       [["n"] action/add-stacked-pane]
+      [["p"] action/command-palette]
     ]
     :unbind-existing false
+    :remove-actions true
+    :actions {
+      "action/ploop" ["ploop docstring" (fn [] (pretty-log "I plooped"))]
+    }
   )
 )
 
