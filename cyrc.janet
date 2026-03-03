@@ -1491,8 +1491,10 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (if (nil? (param/get :mode :target :client)) (break)) # not in a mode
   (def restore-bindings (param/get :restore-bindings :target :client))
   (def restore-actions (param/get :restore-actions :target :client))
+  (def exit-func (param/get :exit-mode-func :target :client))
   (param/set :client :restore-bindings nil)
   (param/set :client :restore-actions nil)
+  (param/set :client :exit-mode-func nil)
   (param/set :client :mode nil)
 
   (key/unbind :root [])
@@ -1505,10 +1507,10 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
     (key/register-action name ;value)
   )
 
-  (key/remove-action "action/exit-mode")
-
   (def layout (layout/get))
   (layout/set (get layout :node))
+
+  (exit-func)
 )
 
 (defn enter-mode
@@ -1517,29 +1519,24 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   actions: a table where keys are action names and values are tuples where the first element is the docstring and the second is the function of the action
   unbind-keys removes existing keybinds (restored when leaving mode), default true
   remove-actions removes existing actions (restored when leaving mode), default false
-  keep-actions is an arrtup of action names that shouldn't be removed, has no effect if remove-actions is false
+  keep-actions is an arrtup of action names that shouldn't be removed, has no effect if remove-actions is false. Each element can be either a function, or a string. If it is a string, that string is used to look up the function from the actions table *after the actions table is modified*. A string should be used for actions that are created when the mode initializes and so are not bound to a symbol during cy initialization.
   exit-func is a function that will be executed when exiting the mode
   ``
-  [name &named &opt exit-binding bindings unbind-keys actions remove-actions keep-actions exit-func]
+  [name &named &opt exit-binding bindings unbind-keys actions remove-actions keep-actions exit-func new-layout]
   (default unbind-keys true)
   (default remove-actions false)
   (default exit-func (fn []))
 
   (param/set :client :mode name)
 
-  (param/set :client :restore-bindings (key/current))
-  (when unbind-keys
-    (key/unbind :root [])
-  )
-  (when bindings
-    (each binding bindings
-      (key/bind :root ;binding)
-    )
-  )
-
-  (param/set :client :restore-actions (key/get-actions))
+  # change actions
+  (def existing-actions (key/get-actions))
+  (param/set :client :restore-actions existing-actions)
   (when remove-actions
+    (def kept @{})
+    (each name (or keep-actions []) (put kept name (existing-actions name)))
     (key/clear-actions)
+    (key/merge-actions kept)
   )
   (when actions
     (eachp [name value] actions
@@ -1553,12 +1550,31 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
     (exit-mode)
   )
+
+  # change bindings
+  (param/set :client :restore-bindings (key/current))
+  (when unbind-keys
+    (key/unbind :root [])
+  )
+  (when bindings
+    (each binding bindings
+      (def [keys action] binding)
+      (if (= (type action) :string) (do
+        # look up the action function
+        (key/bind :root keys (((key/get-actions) action) 1))
+      ) (do
+        (key/bind :root keys action)
+      ))
+    )
+  )
   (key/bind :root exit-binding action/exit-mode)
+
+  (param/set :client :exit-mode-func exit-func)
 
   (layout/set {
     :type :bar
     :text name
-    :node (layout/get)
+    :node (or new-layout (layout/get))
   })
 )
 
@@ -1572,13 +1588,44 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
       [["n"] action/add-stacked-pane]
       [["p"] action/command-palette]
     ]
-    :unbind-existing false
+    :unbind-keys false
     :remove-actions true
     :actions {
       "action/ploop" ["ploop docstring" (fn [] (pretty-log "I plooped"))]
     }
+    :exit-func (fn [] (pretty-log "exited test mode"))
   )
 )
+
+(key/action
+  action/maximize
+  "maximize the attached pane"
+
+  (def layout (layout/get))
+  (param/set :client :restore-layout layout)
+  (def attach-id (layout/attach-id layout))
+
+  (enter-mode "MAXIMIZED"
+    :exit-binding ["ctrl+alt+m"]
+    :unbind-existing true
+    :unbind-keys true
+    :remove-actions true
+    :keep-actions ["action/kill-server"]
+    :bindings [
+      [["f8"] "action/exit-mode"] # for compatibility while transitioning from zellij
+      [["ctrl+alt+p"] action/command-palette]
+    ]
+    :new-layout (new-bordered-pane attach-id :attach true)
+    :exit-func (fn []
+      (def restore-layout (param/get :restore-layout :target :client))
+      (param/set :client :restore-layout nil)
+      (layout/set restore-layout)
+    )
+  )
+)
+
+(key/bind :root ["ctrl+alt+m"] action/maximize)
+(key/bind :root ["f8"] action/maximize)
 
 # ----- ACTIONS -----
 (key/action
@@ -1759,6 +1806,11 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 # ----- GENERAL CONFIG -----
 (param/set :root :animate false)
+(param/set :root :data-directory "")
+
+(defn hook/init []
+  (set-test-layout)
+)
 
 # keybinds
 (key/unbind :root ["ctrl+l"])
@@ -1797,16 +1849,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["f10"] action/rotate-stack-backward)
 (key/bind :root ["f11"] action/rotate-stack-forward)
 
-(key/action
-  action/init-client
-  "should be run when a client initializes"
+# copy mode keybinds
 
-  # (param/set :client :pusheon-exit true)
-  (set-test-layout)
-)
-
-(defn hook/init []
-  (set-test-layout)
-)
 
 # ----- SANDBOX -----
