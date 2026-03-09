@@ -1,23 +1,19 @@
+# ----- VARIABLES -----
+(def tab-active-fg "21")
+(def tab-active-bg "20")
+(def tab-inactive-fg "23")
+(def tab-inactive-bg "22")
+(def pane-attached-border-fg "24")
+(def pane-unattached-border-fg "25")
+(def stack-attached-border-fg "23")
+(def stack-unattached-border-fg "25")
+
 # ----- HELPER FUNCTIONS -----
 (defn get-logs-pane
   "Get the NodeID of the logs pane"
   []
 
   (find |(= (tree/path $) "/logs") (group/leaves :root))
-)
-
-(defn new-border
-  "Create a border. Takes the node struct that should be in the pane."
-  [node]
-
-  {
-    :type :borders
-    :title (style/text " sample title  " :bg "#1F1F28" :bold true)
-    :border :rounded
-    :border-fg "#b8b4d0"
-    :border-bg "#b8b4d0"
-    :node node
-  }
 )
 
 (defn pane-display-title
@@ -35,11 +31,20 @@
   )
 )
 
-(defn pane-border-title
+(defn border-title
   [dimensions node]
 
   (def pane (get node :id))
   (pane-display-title pane)
+)
+
+(defn border-fg
+  [node]
+
+  (if (layout/attached? node)
+    pane-attached-border-fg
+    pane-unattached-border-fg
+  )
 )
 
 (defn new-bordered-pane
@@ -54,10 +59,9 @@
   {
     :type :borders
     # :title (style/text " sample title  " :bg "#1F1F28" :bold true)
-    :title pane-border-title
+    :title border-title
     :border :rounded
-    :border-fg "#b8b4d0"
-    :border-bg "#b8b4d0"
+    :border-fg border-fg
     :node {
       :type :pane
       :id node
@@ -461,6 +465,29 @@
   )
 )
 
+(defn styled-tabs-node
+  "given an array of tabs, returns a tabs node with colors set"
+  [tabs]
+  {
+    :type :tabs
+    :tabs tabs
+    :active-fg tab-active-fg
+    :active-bg tab-active-bg
+    :inactive-fg tab-inactive-fg
+    # :inactive-fg "9"
+    :inactive-bg tab-inactive-bg
+    # :inactive-bg "9"
+  }
+)
+
+(defn style-tab-name
+  "given a name for a tab, style it"
+  [name]
+
+  # (string " " name " ")
+  (string " " name " ")
+)
+
 (defn layout/new-tab
   "creates a new tab with the specified child. If tabs-path is not provided, adds the tab to the first tabs node found, or creates a top-level tab if none is found. If attach, attaches to child-node and sets the new tab to active."
   [layout child-node &opt &named tabs-path attach]
@@ -478,36 +505,30 @@
 
   (def new-layout (if (nil? tabs-path) (do
     (if (param/get :mode :target :client) # if in a mode, tab node should be child of mode bar
-      (layout/assoc layout @[:node] {
-        :type :tabs
-        :tabs @[
-          {
-            :name "1"
-            :active false
-            :node (layout/path layout @[:node])
-          }
-          {
-            :name "2"
-            :active true
-            :node (assoc child-node :attached true)
-          }
-        ]
-      })
-      {
-        :type :tabs
-        :tabs @[
-          {
-            :name "1"
-            :active false
-            :node layout
-          }
-          {
-            :name "2"
-            :active true
-            :node (assoc child-node :attached true)
-          }
-        ]
-      }
+      (layout/assoc layout @[:node] (styled-tabs-node @[
+        {
+          :name "1"
+          :active false
+          :node (layout/path layout @[:node])
+        }
+        {
+          :name "2"
+          :active true
+          :node (assoc child-node :attached true)
+        }
+      ]))
+      (styled-tabs-node @[
+        {
+          :name "1"
+          :active false
+          :node layout
+        }
+        {
+          :name "2"
+          :active true
+          :node (assoc child-node :attached true)
+        }
+      ])
     )
   ) (do
     (def tabs-node (layout/path layout tabs-path))
@@ -528,10 +549,9 @@
     (while (tab-name-used (string name) existing-tabs)
       (set name (+ name 1))
     )
-    (set name (string name))
 
     (def new-tab {
-      :name name
+      :name (style-tab-name name)
       :active attach
       :node (if attach (layout/attach-first child-node) child-node)
     })
@@ -759,13 +779,6 @@
   @[;full-path ;(find-nearest (layout/path layout full-path))]
 )
 
-# ----- STACK IMPLEMENTATION -----
-# a stack stores an ordered list of panes, displaying the pane at the "front"
-# panes not in the front are each given a bar showing the pane's title above the front pane
-# a margins node (with no margins set) is used as the layout node type that contains a stack
-# the border-fg and border-bg properties on the node can store arbitrary strings
-# a stack node has :border-fg "stack" and :border-bg is a newline-separated list of the pane IDs
-
 (defn layout/find-stack
 ```
 given a layout and a path, checks if that path is inside a stack, and if so, returns the path to the stack. Returns nil otherwise.
@@ -777,42 +790,20 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   ))
 )
 
-(defn get-stack-pane-title
-  [pane]
-  (style/text (string "╭" (pane-display-title pane false)) :bold true)
+(defn stack-border-fg
+  [node]
+  (if (layout/attached? node)
+    pane-attached-border-fg
+    pane-unattached-border-fg
+  )
 )
 
-(defn stack-bar-title
-  [dimensions node]
-  # TODO needs updating for new stack implementation
-  # follow the child down to the pane tracking how many levels deep it goes
-  # using the panes id get the stack id param
-  # get the pane id that the bar corresponds to
-  # get that pane's title param if it exists, or the terminal title if it doesn't
-
-  (var child node)
-  (var i 0)
-
-  (while (not= (get child :type) :pane)
-    (set child (get child :node))
-    (set i (+ i 1))
+(defn leaf-border-fg
+  [node]
+  (if (layout/attached? node)
+    pane-attached-border-fg
+    pane-unattached-border-fg
   )
-  # subtract 1 from index for the border node around the pane
-  # not sure why I don't need this actually
-  # (set i (- i 1))
-
-  (def stack-id (param/get :stack :target (get child :id)))
-  (def stacks (param/get :stacks :target :client))
-  (def stack (get stacks stack-id))
-  (def pane (get (get stack :panes) i))
-  # (def title (param/get :title :target pane))
-  # (default title (cmd/title pane))
-  # (string "stack: " stack-id " pane: " pane " title: " title)
-  # (style/text (string "╭ " title) :bold true)
-  (get-stack-pane-title pane)
-
-  # (def layout (layout/get))
-  # (def stack-path (layout/find-stack layout))
 )
 
 (defn layout/add-stacked-pane
@@ -821,7 +812,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   If path is to a stack, the new pane is added to the stack in front of the active leaf.
   If path is not to a stack, that node is replaced with a stack,
   and any descendant panes of the node at `path` are put into the stack.
-  `pane-id` is placed at the front of the stack.
+  `pane-id` is placed at the front (bottom) of the stack.
 
   If `attach`, the pane is attached to and the new stack leaf made active
   Other panes will be detached and other stack leaves made inactive
@@ -832,7 +823,10 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (def node (layout/path layout path))
   (def new-leaf {
     :active attach
-    :title pane-border-title
+    :title border-title
+    # :title "blorp"
+    # :border-fg "3"
+    :border-fg border-fg
     :node {
       :type :pane
       :attached attach
@@ -855,7 +849,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
     (def leaves (map
                  |(identity {
-                  :title pane-border-title
+                  :title border-title
                   :node {
                     :type :pane
                     :id ($ :id)
@@ -867,16 +861,10 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
     {
       :type :stack
       :leaves leaves
+      :border-fg border-fg
     }
   )))
   (layout/assoc layout path stack)
-)
-
-(key/action
-  action/layout-path-test
-  "layout path test"
-  (def layout (layout/get))
-  (def node (layout/path layout @[]))
 )
 
 (key/action
@@ -1028,20 +1016,6 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (def layout (layout/get))
   (def layout (layout/remove-node layout (layout/attach-path layout) :attach true))
   (layout/set layout)
-  # (def attach-path (layout/attach-path layout))
-  # (def attach-id (layout/attach-id layout))
-  # # ensure the pane has a border around it when it isn't in a stack, necessary when simplifying a stack
-  # (def stack (layout/find-stack layout attach-path))
-  # (when (not stack)
-  #   (def parent-path (trim attach-path))
-  #   (def parent (layout/path layout parent-path))
-  #   (when (not (layout/type? :borders parent))
-  #     (def layout (layout/assoc layout attach-path (new-bordered-pane attach-id :attach true)))
-  #     (layout/set layout)
-  #     (break)
-  #   )
-  # )
-  # (layout/set layout)
 )
 
 (key/action
@@ -1052,37 +1026,6 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (action/remove-layout-pane)
 
   (if (not (nil? id)) (tree/rm id))
-)
-
-(defn layout/stack-from-panes
-  ``create and return a stack node with leaves matching the passed array of pane ids
-  if attach, attaches to the vertical bottom pane in the stack
-  ``
-  [panes &opt &named attach]
-
-  (def leaves @[])
-  (each pane panes
-    (array/push leaves {
-      :title pane-border-title
-      :node {
-        :type :pane
-        :id pane
-      }
-    })
-  )
-
-  (def size (length leaves))
-  (if attach (set (leaves (- size 1))
-    (as-> (leaves (- size 1)) _
-      (assoc _ :active true)
-      # (layout/attach-first _)) # TODO figure out why this isn't working UPDATE: I know why, it's because attach-first doesn't work on leaves directly (because layout/successors doesn't), so instead of passing the leaf directly to layout/attach-first pass the leaf's :node
-      (assoc _ :node {:type :pane :id ((_ :node) :id) :attached true}))
-  ))
-
-  {
-    :type :stack
-    :leaves leaves
-  }
 )
 
 (defn layout/get-stack-panes
@@ -1104,7 +1047,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
   (def leaves (map |(
     {
-      :title pane-border-title
+      :title border-title
       :node {
         :type :pane
         :id $
@@ -1676,52 +1619,50 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
     #     }
     #   ]
     # }
-    {
-      :type :tabs
-      :tabs @[
-        {
-          :name "1"
-          :node {
-            :type :split
-            :vertical false
-            :border :none
-            :a (new-bordered-pane (shell/new))
-            :b (new-bordered-pane (get-logs-pane) :title "  cy log")
-          }
+    (styled-tabs-node @[
+      {
+        # :name (style-tab-name "1")
+        :name (style-tab-name "1")
+        :node {
+          :type :split
+          :vertical false
+          :border :none
+          :a (new-bordered-pane (shell/new))
+          :b (new-bordered-pane (get-logs-pane) :title "  cy log")
         }
-        {
-          :name "2"
-          :active true
-          :node {
-            :type :split
-            :vertical false
-            :border :none
-            :a (new-bordered-pane (shell/new) :attach true)
-            :b (new-bordered-pane (get-logs-pane) :title "  cy log")
-          }
+      }
+      {
+        :name (style-tab-name "2")
+        :active true
+        :node {
+          :type :split
+          :vertical false
+          :border :none
+          :a (new-bordered-pane (shell/new) :attach true)
+          :b (new-bordered-pane (get-logs-pane) :title "  cy log")
         }
-        {
-          :name "3"
-          :node {
-            :type :split
-            :vertical false
-            :border :none
-            :a (new-bordered-pane (shell/new))
-            :b (new-bordered-pane (get-logs-pane) :title "  cy log")
-          }
+      }
+      {
+        :name (style-tab-name "3")
+        :node {
+          :type :split
+          :vertical false
+          :border :none
+          :a (new-bordered-pane (shell/new))
+          :b (new-bordered-pane (get-logs-pane) :title "  cy log")
         }
-        {
-          :name "4"
-          :node {
-            :type :split
-            :vertical false
-            :border :none
-            :a (new-bordered-pane (shell/new))
-            :b (new-bordered-pane (get-logs-pane) :title "  cy log")
-          }
+      }
+      {
+        :name (style-tab-name "4")
+        :node {
+          :type :split
+          :vertical false
+          :border :none
+          :a (new-bordered-pane (shell/new))
+          :b (new-bordered-pane (get-logs-pane) :title "  cy log")
         }
-      ]
-    }
+      }
+    ])
   )
 )
 
@@ -1810,6 +1751,14 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 (defn hook/init []
   (set-test-layout)
+
+  # (param/set :client :replay-selection-style
+  #   {
+  #     :fg "#c8c093"
+  #     :bg "#2d4f67"
+  #     # :bold true
+  #   }
+  # )
 )
 
 # keybinds
@@ -1838,6 +1787,27 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["ctrl+alt+d"] action/remove-layout-pane)
 (key/bind :root ["ctrl+alt+x"] action/kill-layout-pane)
 
+(key/action
+  action/visual-select-mode
+  "open visual selection copy mode"
+
+  (replay/open (pane/current) :copy true)
+  # (pane/send-keys (pane/current) @["v"])
+  # (replay/select)
+)
+
+(key/bind :root ["ctrl+alt+s"] (fn []
+  (action/visual-select-mode)
+))
+
+(key/bind :copy ["esc"] (fn []
+  (replay/quit)
+  (replay/quit)
+  (replay/quit)
+))
+(key/bind :copy ["g" "h"] replay/first-non-blank)
+(key/bind :copy ["g" "l"] replay/end-of-line)
+
 # for intial compatibility while I transition from zellij
 (key/bind :root ["f1"] action/focus-left)
 (key/bind :root ["f2"] action/focus-down)
@@ -1851,5 +1821,13 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 # copy mode keybinds
 
+# theming kanagawa
+# (color-maps/set :root :kanagawa)
+(param/set :root :replay-selection-style
+  {
+    :bg "18"
+    :fg "19"
+  }
+)
 
 # ----- SANDBOX -----
