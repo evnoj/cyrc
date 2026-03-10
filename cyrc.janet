@@ -1158,7 +1158,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
   (def attach-path (layout/attach-path layout))
   (def stack-path (layout/find-stack layout attach-path))
-  (if (nil? stack-path) (break))
+  (if (nil? stack-path) (break layout))
 
   (def pane (as-> (layout/path layout stack-path) _
     # (layout/get-stack-panes _)
@@ -1226,7 +1226,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (def layout (layout/remove-node layout attach-path))
 
   # (def tabs-path (layout/find-last layout attach-path |(= ($ :type) :tabs)))
-  (layout/set (layout/new-tab layout (new-bordered-pane attach-id) :attach true))
+  (layout/set (layout/new-tab layout (new-bordered-pane attach-id :attach true)))
 )
 
 (defn
@@ -1604,7 +1604,6 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
       (param/set :client :restore-layout nil)
       (layout/set restore-layout)
     )
-    :bar-text
   )
 )
 
@@ -1791,8 +1790,10 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (param/set :root :data-directory "")
 
 (defn hook/init []
-  (set-test-layout)
+  (param/set (tree/id :root "/logs") :title "  cy log")
 
+  # (set-test-layout)
+  (layout/set (new-bordered-pane (shell/new) :attach true))
   # (param/set :client :replay-selection-style
   #   {
   #     :fg "#c8c093"
@@ -1816,6 +1817,14 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["ctrl+alt+shift+j"] action/move-stacked-pane-down)
 (key/bind :root ["ctrl+alt+shift+k"] action/move-stacked-pane-up)
 (key/bind :root ["ctrl+alt+shift+l"] action/move-stacked-pane-right)
+
+(key/bind :root ["ctrl+alt+shift+,"] action/split-stacked-pane-left)
+(key/bind :root ["ctrl+alt+shift+."] action/split-stacked-pane-right)
+(key/bind :root ["ctrl+alt+shift+up"] action/split-stacked-pane-up)
+(key/bind :root ["ctrl+alt+shift+down"] action/split-stacked-pane-down)
+
+(key/bind :root ["ctrl+alt+b"] action/break-pane-new-tab)
+(key/bind :root ["ctrl+alt+a"] action/jump-pane)
 
 (key/bind :root ["ctrl+alt+u"] action/rotate-stack-backward)
 (key/bind :root ["ctrl+alt+o"] action/rotate-stack-forward)
@@ -1854,11 +1863,12 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["f2"] action/focus-down)
 (key/bind :root ["f3"] action/focus-up)
 (key/bind :root ["f4"] action/focus-right)
-(key/bind :root ["ctrl+7"] action/remove-layout-pane)
-(key/bind :root ["f7"] action/kill-layout-pane)
 (key/bind :root ["f5"] action/add-stacked-pane)
+(key/bind :root ["f6"] action/break-pane-new-tab)
+(key/bind :root ["f7"] action/kill-layout-pane)
 (key/bind :root ["f10"] action/rotate-stack-backward)
 (key/bind :root ["f11"] action/rotate-stack-forward)
+(key/bind :root ["ctrl+7"] action/remove-layout-pane)
 
 # copy mode keybinds
 
