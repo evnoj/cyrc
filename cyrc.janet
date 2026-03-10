@@ -850,6 +850,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
     (def leaves (map
                  |(identity {
                   :title border-title
+                  :border-fg border-fg
                   :node {
                     :type :pane
                     :id ($ :id)
@@ -861,7 +862,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
     {
       :type :stack
       :leaves leaves
-      :border-fg border-fg
+      # :border-fg border-fg
     }
   )))
   (layout/assoc layout path stack)
@@ -1408,6 +1409,43 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (layout/set (layout/assoc layout parent-split-path new-split))
 )
 
+# ----- RUN IN PLACE IMPLEMENTATION -----
+# call a command from cy exec to run a different command in the current pane that returns when it exits
+# ex. cy exec -c '(run-in-place "echo hey | less")'
+(defn swap-pane
+  "find the layout pane node in the current layout with id current, and change its id to new"
+  [current new]
+
+  (def layout (layout/get))
+  (def path (layout/find layout |(= ($ :id) current)))
+  (if (nil? path) (break))
+
+  (def pane (assoc (layout/path layout path) :id new))
+  (layout/set (layout/assoc layout path pane))
+)
+
+(defn run-in-place
+  [command]
+  (def current-pane (pane/current))
+  (def group-path (string "/" current-pane "/cmds"))
+  (def group (group/mkdir :root group-path))
+  (def name (string "0" (math/round (* 100 (math/random)))))
+  (def run-cmd (cmd/new group :name name :command "bash" :args @[
+    "-c"
+    (string/format
+      "%s; cy exec -c '(do
+                           (def pane (tree/id %i \"/%s\"))
+                           (swap-pane pane %i)
+                           (tree/rm pane))'"
+      command
+      group
+      name
+      current-pane
+    )
+  ]))
+  (swap-pane current-pane run-cmd)
+)
+
 # ----- MODE IMPLEMENTATION -----
 # entering a mode puts a bar at the top of the screen displaying the mode
 # all keys are unbound and a new set of keybinds is created
@@ -1464,11 +1502,13 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   remove-actions removes existing actions (restored when leaving mode), default false
   keep-actions is an arrtup of action names that shouldn't be removed, has no effect if remove-actions is false. Each element can be either a function, or a string. If it is a string, that string is used to look up the function from the actions table *after the actions table is modified*. A string should be used for actions that are created when the mode initializes and so are not bound to a symbol during cy initialization.
   exit-func is a function that will be executed when exiting the mode
+  bar-text will be passed to the bar's :text property, defaults to the mode name
   ``
-  [name &named &opt exit-binding bindings unbind-keys actions remove-actions keep-actions exit-func new-layout]
+  [name &named &opt exit-binding bindings unbind-keys actions remove-actions keep-actions exit-func new-layout bar-text]
   (default unbind-keys true)
   (default remove-actions false)
   (default exit-func (fn []))
+  (default bar-text name)
 
   (param/set :client :mode name)
 
@@ -1516,7 +1556,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
   (layout/set {
     :type :bar
-    :text name
+    :text bar-text
     :node (or new-layout (layout/get))
   })
 )
@@ -1558,12 +1598,13 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
       [["f8"] "action/exit-mode"] # for compatibility while transitioning from zellij
       [["ctrl+alt+p"] action/command-palette]
     ]
-    :new-layout (new-bordered-pane attach-id :attach true)
+    :new-layout {:type :pane :attached true :id attach-id}
     :exit-func (fn []
       (def restore-layout (param/get :restore-layout :target :client))
       (param/set :client :restore-layout nil)
       (layout/set restore-layout)
     )
+    :bar-text
   )
 )
 
