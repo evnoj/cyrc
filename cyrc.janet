@@ -143,6 +143,18 @@
   (tuple/slice arrtup 0 (- -1 n))
 )
 
+(defn pad-between
+  [left right width]
+
+  (def left-len (length left))
+  (def right-len (length right))
+  (def padding (- width left-len right-len))
+  (if (pos? padding)
+    (string left (string/repeat " " padding) right)
+    (string left right)
+  )
+)
+
 (defn set-title
   [title]
   (def pane (pane/current))
@@ -503,30 +515,32 @@
     layout
   ))
 
+  (def child-node (if attach (layout/attach-first child-node) child-node))
+
   (def new-layout (if (nil? tabs-path) (do
     (if (param/get :mode :target :client) # if in a mode, tab node should be child of mode bar
       (layout/assoc layout @[:node] (styled-tabs-node @[
         {
           :name "1"
-          :active false
+          :active (not attach)
           :node (layout/path layout @[:node])
         }
         {
           :name "2"
-          :active true
-          :node (assoc child-node :attached true)
+          :active attach
+          :node child-node
         }
       ]))
       (styled-tabs-node @[
         {
           :name "1"
-          :active false
+          :active (not attach)
           :node layout
         }
         {
           :name "2"
-          :active true
-          :node (assoc child-node :attached true)
+          :active attach
+          :node child-node
         }
       ])
     )
@@ -553,7 +567,7 @@
     (def new-tab {
       :name (style-tab-name name)
       :active attach
-      :node (if attach (layout/attach-first child-node) child-node)
+      :node child-node
     })
 
     (def existing-tabs (if attach
@@ -1226,7 +1240,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (def layout (layout/remove-node layout attach-path))
 
   # (def tabs-path (layout/find-last layout attach-path |(= ($ :type) :tabs)))
-  (layout/set (layout/new-tab layout (new-bordered-pane attach-id :attach true)))
+  (layout/set (layout/new-tab layout (new-bordered-pane attach-id) :attach true))
 )
 
 (defn
@@ -1588,6 +1602,25 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (param/set :client :restore-layout layout)
   (def attach-id (layout/attach-id layout))
 
+  (defn
+    bar-text
+    [[rows cols] layout]
+    (def node (layout/attach-id layout))
+    (def name (or (param/get :title :target node) "detached"))
+    (def fg "22")
+    (def bg "136")
+
+    (string
+      " "
+      (style/text
+        (pad-between (string " " name) "maximized" cols)
+        :bg bg
+        :fg "22"
+      )
+      " "
+    )
+  )
+
   (enter-mode "MAXIMIZED"
     :exit-binding ["ctrl+alt+m"]
     :unbind-existing true
@@ -1604,6 +1637,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
       (param/set :client :restore-layout nil)
       (layout/set restore-layout)
     )
+    :bar-text bar-text
   )
 )
 
