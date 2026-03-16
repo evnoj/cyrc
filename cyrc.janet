@@ -1071,7 +1071,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (default active-leaf (- (length panes) 1))
   (default attach false)
 
-  (def leaves (map |(
+  (def leaves (map |(break
     {
       :title border-title
       :node {
@@ -1087,7 +1087,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
     (var pane (panes active-leaf))
     (set (leaves active-leaf) (assoc (leaves active-leaf) :node {
       :type :pane
-      :id :pane
+      :id pane
       :attached true
     }))
   )
