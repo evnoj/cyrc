@@ -342,7 +342,6 @@
   "print the current bindings"
 
   (def bindings (key/current))
-  # (pretty-log bindings)
   (each binding bindings (pretty-log (describe (binding :function))))
 )
 
@@ -500,6 +499,20 @@
   (string " " name " ")
 )
 
+(defn renumber-tabs
+  "given an array of tabs (the :tabs property of a tabs node), for any tab which has a name that is a number, change its name to be the index of that tab, starting at 1. Modifies the array and returns it."
+  [tabs]
+
+  (for i 0 (length tabs) (do
+    (def tab (tabs i))
+    (if (scan-number (tab :name))
+      (put tabs i (assoc tab :name (string (+ i 1))))
+    )
+  ))
+
+  tabs
+)
+
 (defn layout/new-tab
   "creates a new tab with the specified child. If tabs-path is not provided, adds the tab to the first tabs node found, or creates a top-level tab if none is found. If attach, attaches to child-node and sets the new tab to active."
   [layout child-node &opt &named tabs-path attach]
@@ -552,20 +565,8 @@
       (if ((existing-tabs i) :active) (set active-tab i))
     )
 
-    (defn tab-name-used [name tabs]
-      (var found false)
-      (each tab tabs
-        (if (= name (tab :name)) (set found true))
-      )
-      found
-    )
-    (var name 1)
-    (while (tab-name-used (string name) existing-tabs)
-      (set name (+ name 1))
-    )
-
     (def new-tab {
-      :name (style-tab-name name)
+      :name "1"
       :active attach
       :node child-node
     })
@@ -578,7 +579,7 @@
     (layout/assoc
       layout
       tabs-path
-      (assoc tabs-node :tabs (array/insert existing-tabs (+ 1 active-tab) new-tab))
+      (assoc tabs-node :tabs (renumber-tabs (array/insert existing-tabs (+ 1 active-tab) new-tab)))
     )
   )))
 )
@@ -1030,6 +1031,16 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
   (def layout (layout/get))
   (def layout (layout/remove-node layout (layout/attach-path layout) :attach true))
+  (def tabs-path (layout/find layout |(layout/type? :tabs $)))
+  (def layout (if tabs-path
+    (do
+      (def tabs-node (layout/path layout tabs-path))
+      (def tabs (tabs-node :tabs))
+      (layout/assoc layout tabs-path (assoc tabs-node :tabs (renumber-tabs tabs)))
+    )
+    layout
+  ))
+
   (layout/set layout)
 )
 
@@ -1891,6 +1902,16 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 ))
 (key/bind :copy ["g" "h"] replay/first-non-blank)
 (key/bind :copy ["g" "l"] replay/end-of-line)
+
+(key/action
+  action/send-text-test
+  "send text test"
+
+  (pane/send-text (pane/current) "\e[1;6y")
+)
+
+# custom escape sequences for programs that don't support KKP, ex. zsh
+# (key/bind :root ["shift+backspace"] (fn [] (pane/send-text (pane/current) "\x1b[1;6y")))
 
 # for intial compatibility while I transition from zellij
 (key/bind :root ["f1"] action/focus-left)
