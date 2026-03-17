@@ -1986,22 +1986,19 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 )
 
 (key/action
-  action/my-insert-thumb
-  "my Select a thumb and insert it into the current pane."
+  action/thumbs-copy
+  "thumbs copy to clipboard"
+  # uses go regex, RE2 syntax, does not support lookaheads or lookbehinds
   (def patterns @[
-    `(?<!\S)[^\s]*[./][^\s]*(?!\S)` # files
+    `(?:^|\s)(?P<match>[^\s│─]*[.\/][^\s│─]*)(?:\s|$)` # files
   ])
   (array/join patterns (input/thumbs/default-patterns))
-  (var choice (input/thumbs))
+  (var choice (input/thumbs :patterns patterns))
   (when (nil? choice) (break))
-  (pane/send-text (pane/current) choice))
-
-(key/action
- action/what-thumbs
- "what thumbs"
- (pretty-log (type (input/thumbs/default-patterns)))
- (pretty-log (input/thumbs/default-patterns))
+  (clipboard/set choice)
 )
+(key/bind :root ["ctrl+a" "s"] action/thumbs-copy)
+
 
 # ----- SANDBOX -----
 # Kakoune-style copy mode keybindings for cy
