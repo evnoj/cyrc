@@ -585,6 +585,44 @@
   )))
 )
 
+(key/action
+  action/move-tab-left
+  "move tab left"
+
+  (def layout (layout/get))
+  (def tabs-path (layout/find layout |(layout/type? :tabs $)))
+  (def tabs-node (layout/path layout tabs-path))
+  (def tabs (tabs-node :tabs))
+  (def num-tabs (length tabs))
+
+  (var active-tab-index (find-index |($ :active) tabs))
+  (def active-tab (tabs active-tab-index))
+  (array/remove tabs active-tab-index)
+  (set active-tab-index (% (-- active-tab-index) num-tabs))
+  (array/insert tabs active-tab-index active-tab)
+  (renumber-tabs tabs)
+  (layout/set (layout/assoc layout tabs-path (assoc tabs-node :tabs tabs)))
+)
+
+(key/action
+  action/move-tab-right
+  "move tab right"
+
+  (def layout (layout/get))
+  (def tabs-path (layout/find layout |(layout/type? :tabs $)))
+  (def tabs-node (layout/path layout tabs-path))
+  (def tabs (tabs-node :tabs))
+  (def num-tabs (length tabs))
+
+  (var active-tab-index (find-index |($ :active) tabs))
+  (def active-tab (tabs active-tab-index))
+  (array/remove tabs active-tab-index)
+  (set active-tab-index (% (++ active-tab-index) num-tabs))
+  (array/insert tabs active-tab-index active-tab)
+  (renumber-tabs tabs)
+  (layout/set (layout/assoc layout tabs-path (assoc tabs-node :tabs tabs)))
+)
+
 (defn layout/remove-node
   ```Remove the node from the layout, simplifying the nearest ancestor with children.```
   [layout path &opt &named attach]
