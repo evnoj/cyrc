@@ -1,6 +1,7 @@
 # ----- VARIABLES -----
 (def tab-active-fg "21")
 (def tab-active-bg "20")
+
 (def tab-inactive-fg "23")
 (def tab-inactive-bg "22")
 (def pane-attached-border-fg "24")
@@ -1074,6 +1075,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (def leaves (map |(break
     {
       :title border-title
+      :border-fg border-fg
       :node {
         :type :pane
         :id $
@@ -1104,7 +1106,9 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   # if the attached pane is a child of a split, or is in a stack that is a child of a split, merge the two halves (which must each be either a pane or a stack) into a single stack, replacing the split with it. If the sibling of the attached pane is a split, will do nothing
   (def layout (layout/get))
   (def attach-path (layout/attach-path layout))
-  (def parent-split-path (layout/find-last layout attach-path |(= ($ :type) :split)))
+  # (def parent-split-path (layout/find-last layout attach-path |(= ($ :type) :split)))
+  (def parent-split-path (layout/find-last layout attach-path |(layout/type? :split $)))
+  (pretty-log "got here")
   (if (nil? parent-split-path) (break))
 
   (def parent-split (layout/path layout parent-split-path))
@@ -1450,7 +1454,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 )
 
 (defn run-in-place
-  [command]
+  [command &opt title]
   (def current-pane (pane/current))
   (def group-path (string "/" current-pane "/cmds"))
   (def group (group/mkdir :root group-path))
@@ -1468,6 +1472,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
       current-pane
     )
   ]))
+
+  (param/set run-cmd :title title)
   (swap-pane current-pane run-cmd)
 )
 
