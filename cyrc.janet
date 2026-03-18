@@ -1990,7 +1990,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   "thumbs copy to clipboard"
   # uses go regex, RE2 syntax, does not support lookaheads or lookbehinds
   (def patterns @[
-    `(?:^|\s)(?P<match>[^\s│─]*[.\/][^\s│─]*)(?:\s|$)` # files
+    `(?:^|\s)(?P<match>[^\s│─<>]*[.\/][^\s│─<>]*)(?:\s|$)` # files
   ])
   (array/join patterns (input/thumbs/default-patterns))
   (var choice (input/thumbs :patterns patterns))
