@@ -1874,6 +1874,45 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   [layout path]
 )
 
+# ----- ZLE BINDINGS -----
+# zle (zsh line editor) does not support the kitty keyboard protocol (KKP)
+# I have set up zle mappings for custom escape codes for certain special keybinds
+# these bindings should be made active when entering zle, and inactive when leaving
+# this is done via zle hooks
+(def zle-binding-table @{
+  "shift+enter" "\x1b[1y"
+  "shift+ctrl+left" "\x1b[1;1y"
+  "shift+ctrl+right" "\x1b[1;2y"
+  "shift+ctrl+up" "\x1b[1;3y"
+  "shift+ctrl+down" "\x1b[1;4y"
+  "ctrl+enter" "\x1b[1;5y"
+  "shift+backspace" "\x1b[1;6y"
+  "shift+alt+left" "\x1b[2;1y"
+  "shift+alt+right" "\x1b[2;2y"
+  "shift+alt+up" "\x1b[2;3y"
+  "shift+alt+down" "\x1b[2;4y"
+})
+
+(key/action
+  action/zle-bindings-activate
+  "activate zle bindings"
+
+  (def pane (pane/current))
+  (eachp [binding escape-sequence] zle-binding-table
+    (key/bind pane [binding] (fn [] (pane/send-bytes pane escape-sequence)))
+  )
+)
+
+(key/action
+  action/zle-bindings-deactivate
+  "deactivate zle bindings"
+
+  (def pane (pane/current))
+  (eachk binding zle-binding-table
+    (key/unbind pane [binding])
+  )
+)
+
 # ----- GENERAL CONFIG -----
 (defn hook/init []
   (param/set (tree/id :root "/logs") :title "  cy log")
