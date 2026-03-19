@@ -8,6 +8,8 @@
 (def pane-unattached-border-fg "25")
 (def stack-attached-border-fg "23")
 (def stack-unattached-border-fg "25")
+(def background "26")
+(def foreground "27")
 
 # ----- HELPER FUNCTIONS -----
 (defn get-logs-pane
@@ -18,7 +20,7 @@
 )
 
 (defn pane-display-title
-  [pane &opt style]
+  [pane &opt &named style attached]
   (default style true)
 
   (def title (cond
@@ -27,7 +29,14 @@
   ))
 
   (if style
-    (style/text (string " " title " ") :bg "#1F1F28" :bold true)
+    (do
+      (def [fg bg] (if attached
+        [background foreground]
+        [foreground background]
+      ))
+      (style/text (string " " title " ") :bg bg :fg fg :bold true)
+      # (style/text (string " " title " ") :bg "#1F1F28" :bold true)
+    )
     (string " " title " ")
   )
 )
@@ -35,8 +44,7 @@
 (defn border-title
   [dimensions node]
 
-  (def pane (get node :id))
-  (pane-display-title pane)
+  (pane-display-title (node :id) :attached (node :attached))
 )
 
 (defn border-fg
@@ -2036,8 +2044,22 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (when (nil? choice) (break))
   (clipboard/set choice)
 )
+(key/action
+  action/thumbs-insert
+  "thumbs insert"
+  # uses go regex, RE2 syntax, does not support lookaheads or lookbehinds
+  (def patterns @[
+    `(?:^|\s)(?P<match>[^\s│─<>]*[.\/][^\s│─<>]*)(?:\s|$)` # files
+  ])
+  (array/join patterns (input/thumbs/default-patterns))
+  (var choice (input/thumbs :patterns patterns))
+  (when (nil? choice) (break))
+  (pane/send-text (pane/current) choice)
+)
 (key/bind :root ["ctrl+a" "s"] action/thumbs-copy)
-
+(key/bind :root ["ctrl+a" "ctrl+s"] action/thumbs-copy)
+(key/bind :root ["ctrl+alt+i"] action/thumbs-insert)
+(key/bind :root ["f12"] action/thumbs-insert) # compat during zellij transition
 
 # ----- SANDBOX -----
 # Kakoune-style copy mode keybindings for cy
