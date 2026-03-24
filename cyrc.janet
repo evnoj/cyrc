@@ -27,6 +27,7 @@
     (nil? pane) "󰆢  empty"
     (or (param/get :title :target pane) (cmd/title pane))
   ))
+  (if (zero? (length title)) (break title))
 
   (if style
     (do
@@ -1244,7 +1245,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
     (_ :id)
   ))
 
-  (def move-path (layout/find-nearest-node layout stack-path direction [:pane :stack]))
+  (def move-path (layout/find-nearest-node layout stack-path direction [:pane :stack] :wrap true))
   # we want to replace a pane's borders node if it exists rather than the pane
   (def move-node (layout/path layout move-path))
   (when (layout/type? :pane move-node)
@@ -1677,8 +1678,9 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
       " "
       (style/text
         (pad-between (string " " name) "maximized" cols)
-        :bg bg
-        :fg "22"
+        :bg foreground
+        :fg background
+        :bold true
       )
       " "
     )
@@ -1815,7 +1817,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (def attach-path (layout/attach-path layout))
   (def stack-path (layout/find-stack layout attach-path))
   (def attach-path (if stack-path stack-path attach-path))
-  (def nearest-path (layout/find-nearest-node layout attach-path direction [:pane :stack]))
+  (def nearest-path (layout/find-nearest-node layout attach-path direction [:pane :stack] :wrap true))
   (if (nil? nearest-path) (break layout))
 
   (def nearest-node (layout/path layout nearest-path))
@@ -1922,6 +1924,10 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 )
 
 # ----- GENERAL CONFIG -----
+(def prefix-key "ctrl+m")
+# use ctrl-m as prefix key instead of ctrl-a
+(key/remap :root ["ctrl+a"] [prefix-key])
+
 (defn hook/init []
   (param/set (tree/id :root "/logs") :title "  cy log")
 
@@ -2056,8 +2062,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (when (nil? choice) (break))
   (pane/send-text (pane/current) choice)
 )
-(key/bind :root ["ctrl+a" "s"] action/thumbs-copy)
-(key/bind :root ["ctrl+a" "ctrl+s"] action/thumbs-copy)
+(key/bind :root [prefix-key "s"] action/thumbs-copy)
+(key/bind :root [prefix-key "ctrl+s"] action/thumbs-copy)
 (key/bind :root ["ctrl+alt+i"] action/thumbs-insert)
 (key/bind :root ["f12"] action/thumbs-insert) # compat during zellij transition
 
@@ -2217,14 +2223,21 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 # ----- Yank and quit (reset state) -----
 
+(defn- kak-quit []
+  (param/set :client :kak-selecting false)
+  (replay/quit) (replay/quit) (replay/quit))
+
 (key/bind :copy ["y"]
+  (fn []
+    (param/set :client :kak-selecting false)
+    (replay/copy-clipboard)
+    (replay/quit) (replay/quit) (replay/quit)))
+
+(key/bind :copy ["Y"]
   (fn []
     (param/set :client :kak-selecting false)
     (replay/copy-clipboard)))
 
-(defn- kak-quit []
-  (param/set :client :kak-selecting false)
-  (replay/quit) (replay/quit) (replay/quit))
 
 (key/bind :copy ["q"] kak-quit)
 (key/bind :copy ["esc"] kak-quit)
