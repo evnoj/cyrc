@@ -4,8 +4,8 @@
 
 (def tab-inactive-fg "23")
 (def tab-inactive-bg "22")
-(def pane-attached-border-fg "24")
-(def pane-unattached-border-fg "25")
+(def view-attached-border-fg "24")
+(def view-unattached-border-fg "25")
 (def stack-attached-border-fg "23")
 (def stack-unattached-border-fg "25")
 (def background "26")
@@ -52,13 +52,13 @@
   [node]
 
   (if (layout/attached? node)
-    pane-attached-border-fg
-    pane-unattached-border-fg
+    view-attached-border-fg
+    view-unattached-border-fg
   )
 )
 
-(defn new-bordered-pane
-  "Create a pane with a border. Takes the NodeID that should be in the pane."
+(defn new-bordered-view
+  "Create a view with a border. Takes the node ID that should be in the view."
   [node &opt &named attach title]
 
   (default attach false)
@@ -73,7 +73,7 @@
     :border :rounded
     :border-fg border-fg
     :node {
-      :type :pane
+      :type :view
       :id node
       :attached attach
     }
@@ -482,9 +482,9 @@
   "layout search test"
 
   (def layout (layout/get))
-  (def panes (layout/search layout |(layout/type? :pane $)))
-  (each pane panes
-    (msg/log :info (array-to-string pane))
+  (def views (layout/search layout |(layout/type? :view $)))
+  (each view views
+    (msg/log :info (array-to-string view))
   )
 )
 
@@ -646,9 +646,9 @@
   ))
 
   # If there are no parents with other children, it's game over, just set the
-  # layout to a disconnected pane
+  # layout to a disconnected view
   (if (nil? parent-path)
-    (break {:type :pane :attached true}))
+    (break {:type :view :attached true}))
 
   (def parent (layout/path layout parent-path))
 
@@ -709,12 +709,12 @@
           (do
             (def node ((remaining-leaves 0) :node))
             (if attach
-              (if (layout/type? :pane node)
-                (new-bordered-pane (node :id) :attach true)
+              (if (layout/type? :view node)
+                (new-bordered-view (node :id) :attach true)
                 (layout/attach-first node)
               )
-              (if (layout/type? :pane node)
-                (new-bordered-pane (node :id))
+              (if (layout/type? :view node)
+                (new-bordered-view (node :id))
                 node
               )
             )
@@ -740,12 +740,12 @@
 # follows implementation of layout/move in the source (`pkg/cy/boot/layout.janet`)
 (defn
   layout/find-nearest-node
-  ```for the given layout and path, finds the path from the layout to the nearest pane or multi-pane container (stack, split, tabs) to the node at the given path along the given direction
+  ```for the given layout and path, finds the path from the layout to the nearest view or multi-view container (stack, split, tabs) to the node at the given path along the given direction
 
   returns nil if none was found
 
   direction is :up, :down, :left, or :right
-  node-types is an array of layout pane types to look for (ex. [:pane :stack] will find the nearest pane or stack)
+  node-types is an array of layout node types to look for (ex. [:view :stack] will find the nearest view or stack)
   if wrap, and no regular nearest node was found, will search for a node at the opposite end of the highest ancestor that is arranged along the given axis
   ```
   [layout path direction node-types &opt &named wrap]
@@ -860,29 +860,29 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (defn stack-border-fg
   [node]
   (if (layout/attached? node)
-    pane-attached-border-fg
-    pane-unattached-border-fg
+    view-attached-border-fg
+    view-unattached-border-fg
   )
 )
 
 (defn leaf-border-fg
   [node]
   (if (layout/attached? node)
-    pane-attached-border-fg
-    pane-unattached-border-fg
+    view-attached-border-fg
+    view-unattached-border-fg
   )
 )
 
-(defn layout/add-stacked-pane
+(defn layout/add-stacked-view
   ```
-  given a layout, path, and pane node id, add a stacked pane.
-  If path is to a stack, the new pane is added to the stack in front of the active leaf.
+  given a layout, path, and pane node id, add a stacked view.
+  If path is to a stack, the new view is added to the stack in front of the active leaf.
   If path is not to a stack, that node is replaced with a stack,
-  and any descendant panes of the node at `path` are put into the stack.
+  and any descendant views of the node at `path` are put into the stack.
   `pane-id` is placed at the front (bottom) of the stack.
 
-  If `attach`, the pane is attached to and the new stack leaf made active
-  Other panes will be detached and other stack leaves made inactive
+  If `attach`, the view is attached to and the new stack leaf made active
+  Other views will be detached and other stack leaves made inactive
   ```
   [layout path pane-id &opt &named attach]
 
@@ -894,8 +894,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
     # :title "blorp"
     # :border-fg "3"
     :border-fg border-fg
-    :node {
-      :type :pane
+      :node {
+      :type :view
       :attached attach
       :id pane-id
     }
@@ -910,19 +910,24 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
     (array/insert (node :leaves) (+ 1 active-index) new-leaf)
     node
   ) (do
-    (def panes (map
-                |(layout/path node $)
-                (layout/search node |(layout/type? :pane $))))
+    (def views (map
+      |(layout/path node $)
+      (layout/search node |(layout/type? :view $))
+     ))
 
-    (def leaves (map
-                 |(identity {
-                  :title border-title
-                  :border-fg border-fg
-                  :node {
-                    :type :pane
-                    :id ($ :id)
-                  }
-                 }) panes))
+    (def leaves
+      (map
+        |(identity {
+          :title border-title
+          :border-fg border-fg
+          :node {
+            :type :view
+            :id ($ :id)
+          }
+        })
+        views
+      )
+    )
 
     (array/push leaves new-leaf)
 
@@ -935,8 +940,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (layout/assoc layout path stack)
 )
 
-(defn action/add-stacked-pane-cmd
-  "add a stacked pane that runs the passed cmd, when the cmd exits it drops to zsh"
+(defn action/add-stacked-view-cmd
+  "add a stacked view with a new pane that runs the passed cmd, when the cmd exits it drops to zsh"
   [cmd &opt &named path]
 
   (def layout (layout/get))
@@ -947,17 +952,17 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (def new-pane (cmd/new :root :path path :command "sh" :args @["-c" (string cmd "; zsh")]))
 
   (def new-layout (if stack (do
-    (layout/add-stacked-pane layout stack new-pane :attach true)
+    (layout/add-stacked-view layout stack new-pane :attach true)
   ) (do
-    # the pane has a border around it, the path to that is what we'll replace
-    (layout/add-stacked-pane layout (trim attach-path) new-pane :attach true)
+    # the view has a border around it, the path to that is what we'll replace
+    (layout/add-stacked-view layout (trim attach-path) new-pane :attach true)
   )))
   (layout/set new-layout)
 )
 
 (key/action
-  action/add-stacked-pane
-  "add a stacked pane at a new shell in the current directory to the focused pane"
+  action/add-stacked-view
+  "add a stacked view at a new shell in the current directory to the focused view"
 
   (def layout (layout/get))
   (def path (layout/attach-path layout))
@@ -966,17 +971,17 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (def new-pane (shell/new))
 
   (def new-layout (if stack (do
-    (layout/add-stacked-pane layout stack new-pane :attach true)
+    (layout/add-stacked-view layout stack new-pane :attach true)
   ) (do
     # the pane has a border around it, the path to that is what we'll replace
-    (layout/add-stacked-pane layout (trim path) new-pane :attach true)
+    (layout/add-stacked-view layout (trim path) new-pane :attach true)
   )))
   (layout/set new-layout)
 )
 
 (key/action
-  action/add-stacked-pane-empty
-  "add a stacked pane that is empty to the focused pane"
+  action/add-stacked-view-empty
+  "add a stacked view that is empty to the focused pane"
 
   (def layout (layout/get))
   (def path (layout/attach-path layout))
@@ -985,10 +990,10 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (def new-pane nil)
 
   (def new-layout (if stack (do
-    (layout/add-stacked-pane layout stack new-pane :attach true)
+    (layout/add-stacked-view layout stack new-pane :attach true)
   ) (do
     # the pane has a border around it, the path to that is what we'll replace
-    (layout/add-stacked-pane layout (trim path) new-pane :attach true)
+    (layout/add-stacked-view layout (trim path) new-pane :attach true)
   )))
   (layout/set new-layout)
 )
@@ -999,7 +1004,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   If there is an active leaf, maintains its same index
   returns the modified stack node
   direction is :forward or :backward
-  if attach, attach to the first pane in the active leaf
+  if attach, attach to the first view in the active leaf
   ``
   [stack direction &opt &named attach]
 
@@ -1098,8 +1103,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 )
 
 (key/action
-  action/remove-layout-pane
-  "Remove the current pane from the layout."
+  action/remove-attached-view
+  "Remove the attached view from the layout, leaving its pane in the node tree."
 
   (def layout (layout/get))
   (def layout (layout/remove-node layout (layout/attach-path layout) :attach true))
@@ -1117,11 +1122,11 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 )
 
 (key/action
-  action/kill-layout-pane
-  "Remove the current pane from the layout and the node tree."
+  action/kill-attached-view
+  "Remove the attached view from the layout and kill its pane."
   (def layout (layout/get))
   (def {:id id} (layout/path layout (layout/attach-path layout)))
-  (action/remove-layout-pane)
+  (action/remove-attached-view)
 
   (when (not (nil? id))
     (def layout (layout/get))
@@ -1138,7 +1143,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   "given a stack node, get an array of the pane ids of its leaves"
   [stack]
   (map |(($ :node) :id) (stack :leaves))
-  # (map |((layout/path $ (layout/find $ |(= ($ :type) :pane))) :id) (stack :leaves))
+  # (map |((layout/path $ (layout/find $ |(= ($ :type) :view))) :id) (stack :leaves))
 )
 
 (defn layout/stack-from-panes
@@ -1156,7 +1161,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
       :title border-title
       :border-fg border-fg
       :node {
-        :type :pane
+        :type :view
         :id $
       }
     }
@@ -1167,7 +1172,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (when attach
     (var pane (panes active-leaf))
     (set (leaves active-leaf) (assoc (leaves active-leaf) :node {
-      :type :pane
+      :type :view
       :id pane
       :attached true
     }))
@@ -1198,7 +1203,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
     (if (layout/type? :stack node) (do
       (array/push panes ;(layout/get-stack-panes node))
     ) (do # child is a pane
-      (def pane (layout/path node (layout/find node |(= ($ :type) :pane))))
+      (def pane (layout/path node (layout/find node |(= ($ :type) :view))))
       (array/push panes (pane :id))
     ))
   )
@@ -1206,7 +1211,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 )
 
 (defn layout/split-attached-in-stack
-  "splits the attached pane into a split if it is in a stack. if downright true, the attached pane will be placed down or right in the split, if false then up or left"
+  "splits the attached view into a split if it is in a stack. if downright true, the attached pane will be placed down or right in the split, if false then up or left"
   [layout vertical downright]
 
   (def attach-path (layout/attach-path layout))
@@ -1214,7 +1219,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (if (nil? stack-path) (break layout))
   (def attach-id (layout/attach-id layout))
   (def layout (layout/remove-node layout attach-path))
-  (def a (new-bordered-pane attach-id :attach true))
+  (def a (new-bordered-view attach-id :attach true))
   (def b (layout/path layout stack-path))
   
   (layout/assoc layout stack-path {
@@ -1227,38 +1232,38 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 )
 
 (key/action
-  action/split-stacked-pane-up
-  "split stacked pane up"
-  # splits the currently attached stack into a vertical split, where the active pane becomes the top child
+  action/split-stacked-view-up
+  "split stacked view up"
+  # splits the currently attached stack into a vertical split, where the active leaf becomes the top child
   (layout/set (layout/split-attached-in-stack (layout/get) true false))
 )
 
 (key/action
-  action/split-stacked-pane-down
-  "split stacked pane down"
+  action/split-stacked-view-down
+  "split stacked view down"
   # splits the currently attached stack into a vertical split, where the front pane becomes the bottom child
   (layout/set (layout/split-attached-in-stack (layout/get) true true))
 )
 
 (key/action
-  action/split-stacked-pane-left
-  "split stacked pane left"
+  action/split-stacked-view-left
+  "split stacked view left"
   # splits the currently attached stack into a horizontal split, where the front pane becomes the left child
   (layout/set (layout/split-attached-in-stack (layout/get) false false))
 )
 
 (key/action
-  action/split-stacked-pane-right
-  "split stacked pane right"
+  action/split-stacked-view-right
+  "split stacked view right"
   # splits the currently attached stack into a horizontal split, where the front pane becomes the right child
   (layout/set (layout/split-attached-in-stack (layout/get) false true))
 )
 
-(defn layout/move-stacked-pane
+(defn layout/move-stacked-view
   ``
-  moves the active pane in the current stack directionally to another pane or stack
-  if moving to a pane, creates a new stack
-  if moving to a stack, the pane is placed in front of the currently active stack
+  moves the attached view, if it is in a stack, directionally to another view or stack
+  if moving to a view, creates a new stack
+  if moving to a stack, the view is placed in the front (bottom)
   direction is :up, :down, :left, or :right
   ``
   [layout direction]
@@ -1268,18 +1273,16 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (if (nil? stack-path) (break layout))
 
   (def pane (as-> (layout/path layout stack-path) _
-    # (layout/get-stack-panes _)
-    # (get _ (- (length _) 1))
     (_ :leaves)
     (find |($ :active) _)
     (_ :node)
     (_ :id)
   ))
 
-  (def move-path (layout/find-nearest-node layout stack-path direction [:pane :stack] :wrap true))
-  # we want to replace a pane's borders node if it exists rather than the pane
+  (def move-path (layout/find-nearest-node layout stack-path direction [:view :stack] :wrap true))
+  # we want to replace a view's borders node if it exists rather than the pane
   (def move-node (layout/path layout move-path))
-  (when (layout/type? :pane move-node)
+  (when (layout/type? :view move-node)
     (def parent-path (trim move-path))
     (def parent-node (layout/path layout parent-path))
     (if (layout/type? :borders parent-node) (array/pop move-path))
@@ -1287,45 +1290,45 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
   (-> layout
     (layout/remove-node attach-path)
-    (layout/add-stacked-pane move-path pane :attach true)
+    (layout/add-stacked-view move-path pane :attach true)
   )
 )
 
 (key/action
-  action/move-stacked-pane-left
-  "move stacked pane left"
+  action/move-stacked-view-left
+  "move stacked view left"
 
   (def layout (layout/get))
-  (layout/set (activate-tab (layout/move-stacked-pane layout :left)))
+  (layout/set (activate-tab (layout/move-stacked-view layout :left)))
 )
 
 (key/action
-  action/move-stacked-pane-right
-  "move stacked pane right"
+  action/move-stacked-view-right
+  "move stacked view right"
 
   (def layout (layout/get))
-  (layout/set (activate-tab (layout/move-stacked-pane layout :right)))
+  (layout/set (activate-tab (layout/move-stacked-view layout :right)))
 )
 
 (key/action
-  action/move-stacked-pane-up
-  "move stacked pane up"
+  action/move-stacked-view-up
+  "move stacked view up"
 
   (def layout (layout/get))
-  (layout/set (activate-tab (layout/move-stacked-pane layout :up)))
+  (layout/set (activate-tab (layout/move-stacked-view layout :up)))
 )
 
 (key/action
-  action/move-stacked-pane-down
-  "move stacked pane down"
+  action/move-stacked-view-down
+  "move stacked view down"
 
   (def layout (layout/get))
-  (layout/set (activate-tab (layout/move-stacked-pane layout :down)))
+  (layout/set (activate-tab (layout/move-stacked-view layout :down)))
 )
 
 (key/action
-  action/break-pane-new-tab
-  "break the attached pane into a new tab"
+  action/break-view-new-tab
+  "break the attached view into a new tab"
 
   (def layout (layout/get))
   (def attach-path (layout/attach-path layout))
@@ -1333,12 +1336,12 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (def layout (layout/remove-node layout attach-path))
 
   # (def tabs-path (layout/find-last layout attach-path |(= ($ :type) :tabs)))
-  (layout/set (layout/new-tab layout (new-bordered-pane attach-id) :attach true))
+  (layout/set (layout/new-tab layout (new-bordered-view attach-id) :attach true))
 )
 
 (defn
   custom/split-right
-  ```Split the currently attached pane into two horizontally, replacing the right pane with the given node.```
+  ```Split the currently attached view into two horizontally, replacing the right view with the given node.```
   [layout node]
   (def attach-path (layout/attach-path layout))
   (def path (or
@@ -1354,7 +1357,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 (defn
   custom/split-left
-  ```Split the currently attached pane into two horizontally, replacing the left pane with the given node.```
+  ```Split the currently attached view into two horizontally, replacing the left viewwith the given node.```
   [layout node]
   (def attach-path (layout/attach-path layout))
   (def path (or
@@ -1370,7 +1373,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 (defn
   custom/split-down
-  ```Split the currently attached pane into two vertically, replacing the bottom pane with the given node.```
+  ```Split the currently attached view into two vertically, replacing the bottom view with the given node.```
   [layout node]
   (def attach-path (layout/attach-path layout))
   (def path (or
@@ -1386,7 +1389,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 (defn
   custom/split-up
-  ```Split the currently attached pane into two vertically, replacing the top pane with the given node.```
+  ```Split the currently attached view into two vertically, replacing the top view with the given node.```
   [layout node]
   (def attach-path (layout/attach-path layout))
   (def path (or
@@ -1401,7 +1404,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
                                         :b (layout/detach $)})))
 
 (defmacro-
-  custom-pane-creator
+  custom-view-creator
   [name docstring transformer]
   ~(upscope
     (key/action
@@ -1416,37 +1419,37 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
       (,layout/set
         (,transformer
           (,layout/get)
-          (,new-bordered-pane shell :attach true)
-          # {:type :pane :id shell :attached true}))))
+          (new-bordered-view shell :attach true)
+          # {:type :view :id shell :attached true}))))
         )
       )
     )
   )
 )
 
-(custom-pane-creator
+(custom-view-creator
   action/split-right
-  "Split the current pane to the right."
+  "Split the current view to the right."
   custom/split-right)
 
-(custom-pane-creator
+(custom-view-creator
   action/split-left
-  "Split the current pane to the left."
+  "Split the current view to the left."
   custom/split-left)
 
-(custom-pane-creator
+(custom-view-creator
   action/split-up
-  "Split the current pane upwards."
+  "Split the current view upwards."
   custom/split-up)
 
-(custom-pane-creator
+(custom-view-creator
   action/split-down
-  "Split the current pane downwards."
+  "Split the current view downwards."
   custom/split-down)
 
 (key/action
-  action/grow-pane
-  "grow pane"
+  action/grow
+  "grow the half of the split the attached view is in"
 
   (def layout (layout/get))
   (def attach-path (layout/attach-path layout))
@@ -1481,8 +1484,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 )
 
 (key/action
-  action/shrink-pane
-  "shrink pane"
+  action/shrink
+  "shrink the half of the split the attached view is in"
 
   (def layout (layout/get))
   (def attach-path (layout/attach-path layout))
@@ -1520,7 +1523,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 # call a command from cy exec to run a different command in the current pane that returns when it exits
 # ex. cy exec -c '(run-in-place "echo hey | less")'
 (defn swap-pane
-  "find the layout pane node in the current layout with id current, and change its id to new"
+  "find the view in the current layout with pane id current, and change its pane id to new"
   [current new]
 
   (def layout (layout/get))
@@ -1559,7 +1562,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 # entering a mode puts a bar at the top of the screen displaying the mode
 # all keys are unbound and a new set of keybinds is created
 # the original keybinds are restored when exiting the mode
-# in general, ctrl+alt+/ should show the available actions in the mode, and ctrl+alt+q should leave the mode
+# in general, ctrl+alt+q should leave the mode
 
 (defn key-conv
   "takes an array representing a keybind sequence as returned by a func like key/get, and converts it into an array suitable to be passed as the sequence to key/bind"
@@ -1677,7 +1680,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (enter-mode "TEST MODE"
     :exit-binding ["esc"]
     :bindings [
-      [["n"] action/add-stacked-pane]
+      [["n"] action/add-stacked-view]
       [["p"] action/command-palette]
     ]
     :unbind-keys false
@@ -1728,13 +1731,13 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
     #         :type :split
     #         :vertical false
     #         :border :none
-    #         :a (new-bordered-pane (shell/new) :attach true)
-    #         :b (new-bordered-pane (get-logs-pane) :title "  cy log")
+    #         :a (new-bordered-view (shell/new) :attach true)
+    #         :b (new-bordered-view (get-logs-pane) :title "  cy log")
     #       }
     #     }
     #     {
     #       :name "tab 2"
-    #       :node (new-bordered-pane (shell/new))
+    #       :node (new-bordered-view (shell/new))
     #     }
     #   ]
     # }
@@ -1746,8 +1749,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
           :type :split
           :vertical false
           :border :none
-          :a (new-bordered-pane (shell/new))
-          :b (new-bordered-pane (get-logs-pane) :title "  cy log")
+          :a (new-bordered-view (shell/new))
+          :b (new-bordered-view (get-logs-pane) :title "  cy log")
         }
       }
       {
@@ -1757,8 +1760,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
           :type :split
           :vertical false
           :border :none
-          :a (new-bordered-pane (shell/new) :attach true)
-          :b (new-bordered-pane (get-logs-pane) :title "  cy log")
+          :a (new-bordered-view (shell/new) :attach true)
+          :b (new-bordered-view (get-logs-pane) :title "  cy log")
         }
       }
       {
@@ -1767,8 +1770,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
           :type :split
           :vertical false
           :border :none
-          :a (new-bordered-pane (shell/new))
-          :b (new-bordered-pane (get-logs-pane) :title "  cy log")
+          :a (new-bordered-view (shell/new))
+          :b (new-bordered-view (get-logs-pane) :title "  cy log")
         }
       }
       {
@@ -1777,8 +1780,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
           :type :split
           :vertical false
           :border :none
-          :a (new-bordered-pane (shell/new))
-          :b (new-bordered-pane (get-logs-pane) :title "  cy log")
+          :a (new-bordered-view (shell/new))
+          :b (new-bordered-view (get-logs-pane) :title "  cy log")
         }
       }
     ])
@@ -1787,7 +1790,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 (defn layout/move-focus
   ``
-  given a layout and a direction, detach the attached pane and attach to the nearest pane or stack in the given direction
+  given a layout and a direction, detach the attached view and attach to the nearest view or stack in the given direction
   returns the modified layout
   if attaching to a stack, attaches to the stack's active leaf
   direction is :up, :down, :left, or :right
@@ -1797,7 +1800,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (def attach-path (layout/attach-path layout))
   (def stack-path (layout/find-stack layout attach-path))
   (def attach-path (if stack-path stack-path attach-path))
-  (def nearest-path (layout/find-nearest-node layout attach-path direction [:pane :stack] :wrap true))
+  (def nearest-path (layout/find-nearest-node layout attach-path direction [:view :stack] :wrap true))
   (if (nil? nearest-path) (break layout))
 
   (def nearest-node (layout/path layout nearest-path))
@@ -1805,14 +1808,14 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (as-> layout _
     (layout/detach _)
     (cond
-      (layout/type? :pane nearest-node)
+      (layout/type? :view nearest-node)
         (layout/attach _ nearest-path)
       (layout/type? :stack nearest-node) (do
         (def leaves (nearest-node :leaves))
         (def active-leaf-index (find-index |($ :active) leaves))
         (def active-leaf (leaves active-leaf-index))
-        (def pane-path (layout/find (active-leaf :node) |(layout/type? :pane $)))
-        (layout/attach _ [;nearest-path :leaves active-leaf-index :node ;pane-path])
+        (def view-path (layout/find (active-leaf :node) |(layout/type? :view $)))
+        (layout/attach _ [;nearest-path :leaves active-leaf-index :node ;view-path])
       )
     )
     (activate-tab (activate-stack-leaf _))
@@ -1821,7 +1824,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 (key/action
   action/focus-right
-  "focus the pane to the right, inc. across tabs"
+  "focus right"
 
   (def layout (layout/get))
   (layout/set (layout/move-focus layout :right))
@@ -1829,7 +1832,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 (key/action
   action/focus-left
-  "focus the pane to the left inc. across tabs"
+  "focus left"
 
   (def layout (layout/get))
   (layout/set (layout/move-focus layout :left))
@@ -1856,7 +1859,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   "Create a new tab"
 
   (def layout (layout/get))
-  (layout/set (layout/new-tab layout (new-bordered-pane (shell/new)) :attach true))
+  (layout/set (layout/new-tab layout (new-bordered-view (shell/new)) :attach true))
 )
 
 (key/action
@@ -1890,7 +1893,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
 (key/action
   action/maximize
-  "maximize the attached pane"
+  "maximize the attached view"
 
   (def layout (layout/get))
   (param/set :client :restore-layout layout)
@@ -1927,7 +1930,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
       [["ctrl+alt+p"] action/command-palette]
       [["ctrl+alt+s"] action/copy-mode]
     ]
-    :new-layout {:type :pane :attached true :id attach-id}
+    :new-layout {:type :view :attached true :id attach-id}
     :exit-func (fn []
       (def restore-layout (param/get :restore-layout :target :client))
       (param/set :client :restore-layout nil)
@@ -1995,7 +1998,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (param/set (tree/id :root "/logs") :title "  cy log")
 
   # (set-test-layout)
-  (layout/set (new-bordered-pane (shell/new) :attach true))
+  (layout/set (new-bordered-view (shell/new) :attach true))
   # (param/set :client :replay-selection-style
   #   {
   #     :fg "#c8c093"
@@ -2015,22 +2018,22 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["ctrl+alt+k"] action/focus-up)
 (key/bind :root ["ctrl+alt+l"] action/focus-right)
 
-(key/bind :root ["ctrl+alt+shift+h"] action/move-stacked-pane-left)
-(key/bind :root ["ctrl+alt+shift+j"] action/move-stacked-pane-down)
-(key/bind :root ["ctrl+alt+shift+k"] action/move-stacked-pane-up)
-(key/bind :root ["ctrl+alt+shift+l"] action/move-stacked-pane-right)
+(key/bind :root ["ctrl+alt+shift+h"] action/move-stacked-view-left)
+(key/bind :root ["ctrl+alt+shift+j"] action/move-stacked-view-down)
+(key/bind :root ["ctrl+alt+shift+k"] action/move-stacked-view-up)
+(key/bind :root ["ctrl+alt+shift+l"] action/move-stacked-view-right)
 
 (key/bind :root ["ctrl+alt+/"] action/merge-split-into-stack)
-(key/bind :root ["ctrl+alt+,"] action/split-stacked-pane-left)
-(key/bind :root ["ctrl+alt+."] action/split-stacked-pane-right)
-(key/bind :root ["ctrl+alt+shift+up"] action/split-stacked-pane-up)
-(key/bind :root ["ctrl+alt+shift+down"] action/split-stacked-pane-down)
-(key/bind :root ["ctrl+alt+="] action/grow-pane)
-(key/bind :root ["ctrl+alt+-"] action/shrink-pane)
+(key/bind :root ["ctrl+alt+,"] action/split-stacked-view-left)
+(key/bind :root ["ctrl+alt+."] action/split-stacked-view-right)
+(key/bind :root ["ctrl+alt+shift+up"] action/split-stacked-view-up)
+(key/bind :root ["ctrl+alt+shift+down"] action/split-stacked-view-down)
+(key/bind :root ["ctrl+alt+="] action/grow)
+(key/bind :root ["ctrl+alt+-"] action/shrink)
 
 (key/bind :root ["ctrl+alt+shift+,"] action/move-tab-left)
 (key/bind :root ["ctrl+alt+shift+."] action/move-tab-right)
-(key/bind :root ["ctrl+alt+b"] action/break-pane-new-tab)
+(key/bind :root ["ctrl+alt+b"] action/break-view-new-tab)
 (key/bind :root ["ctrl+alt+a"] action/jump-pane)
 (key/bind :root [prefix-key "r"] action/rename-tab)
 
@@ -2039,11 +2042,11 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["ctrl+alt+shift+u"] action/reorder-stack-backward)
 (key/bind :root ["ctrl+alt+shift+o"] action/reorder-stack-forward)
 
-(key/bind :root ["ctrl+alt+n"] action/add-stacked-pane)
-(key/bind :root ["ctrl+alt+shift+n"] action/add-stacked-pane-empty)
+(key/bind :root ["ctrl+alt+n"] action/add-stacked-view)
+(key/bind :root ["ctrl+alt+shift+n"] action/add-stacked-view-empty)
 
-(key/bind :root ["ctrl+alt+d"] action/remove-layout-pane)
-(key/bind :root ["ctrl+alt+x"] action/kill-layout-pane)
+(key/bind :root ["ctrl+alt+d"] action/remove-attached-view)
+(key/bind :root ["ctrl+alt+x"] action/kill-attached-view)
 
 (key/action
   action/send-text-test
@@ -2060,12 +2063,12 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["f2"] action/focus-down)
 (key/bind :root ["f3"] action/focus-up)
 (key/bind :root ["f4"] action/focus-right)
-(key/bind :root ["f5"] action/add-stacked-pane)
-(key/bind :root ["f6"] action/break-pane-new-tab)
-(key/bind :root ["f7"] action/kill-layout-pane)
+(key/bind :root ["f5"] action/add-stacked-view)
+(key/bind :root ["f6"] action/break-view-new-tab)
+(key/bind :root ["f7"] action/kill-attached-view)
 (key/bind :root ["f10"] action/rotate-stack-backward)
 (key/bind :root ["f11"] action/rotate-stack-forward)
-(key/bind :root ["ctrl+7"] action/remove-layout-pane)
+(key/bind :root ["ctrl+7"] action/remove-attached-view)
 
 (key/bind :root ["ctrl+alt+s"] action/copy-mode)
 
