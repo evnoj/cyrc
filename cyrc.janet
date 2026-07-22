@@ -81,10 +81,12 @@
 )
 
 (defn array-to-string
-  [arr]
+  [arr &opt &named sep]
+  (default sep "\n")
+  
   (var str "")
-  (each item arr (set str (string str item "\n")))
-  str
+  (each item arr (set str (string str item sep)))
+  (string/slice str 0 (- -1 (length sep)))
 )
 
 (defn struct-to-string
@@ -600,6 +602,7 @@
 
   (def layout (layout/get))
   (def tabs-path (layout/find layout |(layout/type? :tabs $)))
+  (if (not tabs-path) (break))
   (def tabs-node (layout/path layout tabs-path))
   (def tabs (tabs-node :tabs))
   (def num-tabs (length tabs))
@@ -619,6 +622,7 @@
 
   (def layout (layout/get))
   (def tabs-path (layout/find layout |(layout/type? :tabs $)))
+  (if (not tabs-path) (break))
   (def tabs-node (layout/path layout tabs-path))
   (def tabs (tabs-node :tabs))
   (def num-tabs (length tabs))
@@ -931,6 +935,26 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (layout/assoc layout path stack)
 )
 
+(defn action/add-stacked-pane-cmd
+  "add a stacked pane that runs the passed cmd, when the cmd exits it drops to zsh"
+  [cmd &opt &named path]
+
+  (def layout (layout/get))
+  (def attach-path (layout/attach-path layout))
+  (def stack (layout/find-stack layout attach-path))
+  (def path (or path (cmd/path (layout/attach-id layout))))
+  # (def pwd (cmd/path (layout/attach-id layout)))
+  (def new-pane (cmd/new :root :path path :command "sh" :args @["-c" (string cmd "; zsh")]))
+
+  (def new-layout (if stack (do
+    (layout/add-stacked-pane layout stack new-pane :attach true)
+  ) (do
+    # the pane has a border around it, the path to that is what we'll replace
+    (layout/add-stacked-pane layout (trim attach-path) new-pane :attach true)
+  )))
+  (layout/set new-layout)
+)
+
 (key/action
   action/add-stacked-pane
   "add a stacked pane at a new shell in the current directory to the focused pane"
@@ -1099,7 +1123,15 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (def {:id id} (layout/path layout (layout/attach-path layout)))
   (action/remove-layout-pane)
 
-  (if (not (nil? id)) (tree/rm id))
+  (when (not (nil? id))
+    (def layout (layout/get))
+    (def still-exists-at (layout/find layout |(= ($ :id) id)))
+
+    (if still-exists-at
+      (msg/toast :info (string "Didn't kill pane " id ", still exists at:\n" (array-to-string still-exists-at :sep "")))
+      (tree/rm id)
+    )
+  )
 )
 
 (defn layout/get-stack-panes
@@ -1155,7 +1187,6 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (def attach-path (layout/attach-path layout))
   # (def parent-split-path (layout/find-last layout attach-path |(= ($ :type) :split)))
   (def parent-split-path (layout/find-last layout attach-path |(layout/type? :split $)))
-  (pretty-log "got here")
   (if (nil? parent-split-path) (break))
 
   (def parent-split (layout/path layout parent-split-path))
@@ -1658,57 +1689,6 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   )
 )
 
-(key/action
-  action/maximize
-  "maximize the attached pane"
-
-  (def layout (layout/get))
-  (param/set :client :restore-layout layout)
-  (def attach-id (layout/attach-id layout))
-
-  (defn
-    bar-text
-    [[rows cols] layout]
-    (def node (layout/attach-id layout))
-    (def name (or (param/get :title :target node) "detached"))
-    (def fg "22")
-    (def bg "136")
-
-    (string
-      " "
-      (style/text
-        (pad-between (string " " name) "maximized" cols)
-        :bg foreground
-        :fg background
-        :bold true
-      )
-      " "
-    )
-  )
-
-  (enter-mode "MAXIMIZED"
-    :exit-binding ["ctrl+alt+m"]
-    :unbind-existing true
-    :unbind-keys true
-    :remove-actions true
-    :keep-actions ["action/kill-server"]
-    :bindings [
-      [["f8"] "action/exit-mode"] # for compatibility while transitioning from zellij
-      [["ctrl+alt+p"] action/command-palette]
-    ]
-    :new-layout {:type :pane :attached true :id attach-id}
-    :exit-func (fn []
-      (def restore-layout (param/get :restore-layout :target :client))
-      (param/set :client :restore-layout nil)
-      (layout/set restore-layout)
-    )
-    :bar-text bar-text
-  )
-)
-
-(key/bind :root ["ctrl+alt+m"] action/maximize)
-(key/bind :root ["f8"] action/maximize)
-
 # ----- ACTIONS -----
 (key/action
   action/test-layout
@@ -1879,13 +1859,91 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (layout/set (layout/new-tab layout (new-bordered-pane (shell/new)) :attach true))
 )
 
-(defn swap-pane-left
+(key/action
+  action/swap-split-sides
+  "swap split sides"
+  (def layout (layout/get))
+  (def attach-path (layout/attach-path layout))
+  (def parent-split-path (layout/find-last layout attach-path |(layout/type? :split $)))
+
+  (if (nil? parent-split-path) (break))
+  (def parent-split (layout/path layout parent-split-path))
+  (def {:a a :b b} parent-split)
+  (def parent-split (assoc (assoc parent-split :a b) :b a))
+  (layout/set (layout/assoc layout parent-split-path parent-split))
+)
+
+(defn swap-split-sides
   ""
   [layout path]
 )
 
+# copy mode keybinds
+(key/action
+  action/copy-mode
+  "open copy mode"
+
+  (replay/open (pane/current) :copy true)
+  # (pane/send-keys (pane/current) @["v"])
+  # (replay/select)
+)
+
+(key/action
+  action/maximize
+  "maximize the attached pane"
+
+  (def layout (layout/get))
+  (param/set :client :restore-layout layout)
+  (def attach-id (layout/attach-id layout))
+
+  (defn
+    bar-text
+    [[rows cols] layout]
+    (def node (layout/attach-id layout))
+    (def name (or (param/get :title :target node) "detached"))
+    (def fg "22")
+    (def bg "136")
+
+    (string
+      " "
+      (style/text
+        (pad-between (string " " name) "maximized" (+ cols 2))
+        :bg foreground
+        :fg background
+        :bold true
+      )
+      " "
+    )
+  )
+
+  (enter-mode "MAXIMIZED"
+    :exit-binding ["ctrl+alt+m"]
+    :unbind-existing true
+    :unbind-keys true
+    :remove-actions true
+    :keep-actions ["action/kill-server"]
+    :bindings [
+      [["f8"] "action/exit-mode"] # for compatibility while transitioning from zellij
+      [["ctrl+alt+p"] action/command-palette]
+      [["ctrl+alt+s"] action/copy-mode]
+    ]
+    :new-layout {:type :pane :attached true :id attach-id}
+    :exit-func (fn []
+      (def restore-layout (param/get :restore-layout :target :client))
+      (param/set :client :restore-layout nil)
+      (layout/set restore-layout)
+    )
+    :bar-text bar-text
+  )
+)
+
+(key/bind :root ["ctrl+alt+m"] action/maximize)
+(key/bind :root ["f8"] action/maximize)
+
+
 # ----- ZLE BINDINGS -----
 # zle (zsh line editor) does not support the kitty keyboard protocol (KKP)
+# in addition, I want to support certain keybinds such as ctrl+s that are tricky
 # I have set up zle mappings for custom escape codes for certain special keybinds
 # these bindings should be made active when entering zle, and inactive when leaving
 # this is done via zle hooks
@@ -1901,6 +1959,9 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   "shift+alt+right" "\x1b[2;2y"
   "shift+alt+up" "\x1b[2;3y"
   "shift+alt+down" "\x1b[2;4y"
+  "shift+alt+h" "\x1b[104;4u"
+  "shift+alt+l" "\x1b[108;4u"
+  "ctrl+s" "\x1b[115;5u"
 })
 
 (key/action
@@ -1908,6 +1969,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   "activate zle bindings"
 
   (def pane (pane/current))
+  # (msg/log :info (string "activation pane: " pane))
   (eachp [binding escape-sequence] zle-binding-table
     (key/bind pane [binding] (fn [] (pane/send-bytes pane escape-sequence)))
   )
@@ -1918,6 +1980,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   "deactivate zle bindings"
 
   (def pane (pane/current))
+  # (msg/log :info (string "deactivation pane: " pane))
   (eachk binding zle-binding-table
     (key/unbind pane [binding])
   )
@@ -1957,13 +2020,19 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["ctrl+alt+shift+k"] action/move-stacked-pane-up)
 (key/bind :root ["ctrl+alt+shift+l"] action/move-stacked-pane-right)
 
-(key/bind :root ["ctrl+alt+shift+,"] action/split-stacked-pane-left)
-(key/bind :root ["ctrl+alt+shift+."] action/split-stacked-pane-right)
+(key/bind :root ["ctrl+alt+/"] action/merge-split-into-stack)
+(key/bind :root ["ctrl+alt+,"] action/split-stacked-pane-left)
+(key/bind :root ["ctrl+alt+."] action/split-stacked-pane-right)
 (key/bind :root ["ctrl+alt+shift+up"] action/split-stacked-pane-up)
 (key/bind :root ["ctrl+alt+shift+down"] action/split-stacked-pane-down)
+(key/bind :root ["ctrl+alt+="] action/grow-pane)
+(key/bind :root ["ctrl+alt+-"] action/shrink-pane)
 
+(key/bind :root ["ctrl+alt+shift+,"] action/move-tab-left)
+(key/bind :root ["ctrl+alt+shift+."] action/move-tab-right)
 (key/bind :root ["ctrl+alt+b"] action/break-pane-new-tab)
 (key/bind :root ["ctrl+alt+a"] action/jump-pane)
+(key/bind :root [prefix-key "r"] action/rename-tab)
 
 (key/bind :root ["ctrl+alt+u"] action/rotate-stack-backward)
 (key/bind :root ["ctrl+alt+o"] action/rotate-stack-forward)
@@ -1998,19 +2067,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root ["f11"] action/rotate-stack-forward)
 (key/bind :root ["ctrl+7"] action/remove-layout-pane)
 
-# copy mode keybinds
-(key/action
-  action/copy-mode
-  "open copy mode"
-
-  (replay/open (pane/current) :copy true)
-  # (pane/send-keys (pane/current) @["v"])
-  # (replay/select)
-)
-
-(key/bind :root ["ctrl+alt+s"] (fn []
-  (action/copy-mode)
-))
+(key/bind :root ["ctrl+alt+s"] action/copy-mode)
 
 (key/bind :copy ["esc"] (fn []
   (replay/quit)
@@ -2025,6 +2082,8 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (replay/select)
 
 ))
+(key/bind :copy ["ctrl+b"] replay/select-block)
+(key/bind :copy ["l"] replay/cursor-right)
 
 # theming kanagawa
 # (color-maps/set :root :kanagawa)
@@ -2065,6 +2124,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 (key/bind :root [prefix-key "s"] action/thumbs-copy)
 (key/bind :root [prefix-key "ctrl+s"] action/thumbs-copy)
 (key/bind :root ["ctrl+alt+i"] action/thumbs-insert)
+(key/bind :root ["ctrl+alt+y"] action/thumbs-copy)
 (key/bind :root ["f12"] action/thumbs-insert) # compat during zellij transition
 
 # ----- SANDBOX -----
