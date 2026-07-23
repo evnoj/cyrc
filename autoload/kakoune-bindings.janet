@@ -1,0 +1,1 @@
+../lib/kakoune-bindings.janet
