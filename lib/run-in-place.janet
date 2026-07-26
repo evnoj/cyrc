@@ -13,7 +13,7 @@
 )
 
 (defn run-in-place
-  [command &opt title]
+  [command &opt &named title-prefix title-body]
   (def current-pane (pane/current))
   (def group-path (string "/" current-pane "/cmds"))
   (def group (group/mkdir :root group-path))
@@ -32,6 +32,7 @@
     )
   ]))
 
-  (param/set run-cmd :title title)
+  # (param/set run-cmd :title {:prefix [title-prefix] :body [title-body]})
+  (set-title :pane run-cmd :prefix title-prefix :body title-body)
   (swap-pane current-pane run-cmd)
 )

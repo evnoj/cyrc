@@ -5,67 +5,6 @@
   (find |(= (tree/path $) "/logs") (group/leaves :root))
 )
 
-(defn pane-display-title
-  [pane &opt &named style attached]
-  (default style true)
-
-  (def title (cond
-    (nil? pane) "󰆢  empty"
-    (or (param/get :title :target pane) (cmd/title pane))
-  ))
-  (if (zero? (length title)) (break title))
-
-  (if style
-    (do
-      (def [fg bg] (if attached
-        [background foreground]
-        [foreground background]
-      ))
-      (style/text (string " " title " ") :bg bg :fg fg :bold true)
-      # (style/text (string " " title " ") :bg "#1F1F28" :bold true)
-    )
-    (string " " title " ")
-  )
-)
-
-(defn border-title
-  [dimensions node]
-
-  (pane-display-title (node :id) :attached (node :attached))
-)
-
-(defn border-fg
-  [node]
-
-  (if (layout/attached? node)
-    view-attached-border-fg
-    view-unattached-border-fg
-  )
-)
-
-(defn new-bordered-view
-  "Create a view with a border. Takes the node ID that should be in the view."
-  [node &opt &named attach title]
-
-  (default attach false)
-  (if title
-    (param/set node :title title)
-  )
-
-  {
-    :type :borders
-    # :title (style/text " sample title  " :bg "#1F1F28" :bold true)
-    :title border-title
-    :border :rounded
-    :border-fg border-fg
-    :node {
-      :type :view
-      :id node
-      :attached attach
-    }
-  }
-)
-
 (defn array-to-string
   [arr &opt &named sep]
   (default sep "\n")
@@ -330,3 +269,164 @@
   (each binding bindings (pretty-log (describe (binding :function))))
 )
 
+# title is derived from a param :title on a pane that is a table
+# the table has 3 fields: :prefix, :body, :postfix
+# the values of these tables are arrays
+# each element of the array is either a string, function, or strable
+# if string, it is text that will be styled according to the default styling
+# if function
+# if strable, it has 2 keys :style and :text
+# :text is either a string or function that returns a string
+# it will be rendered with style :style via style/render
+(defn render-text-array
+  [text-array &named default-style &opt style]
+  (default style true)
+
+  (var buff @"")
+  (each elem text-array (do
+    (def t (type elem))
+    (buffer/push-string buff (cond
+      (= :string t) (if style
+        (style/render default-style elem)
+        elem
+      )
+      (or (= :struct t) (= :table t)) (do
+        (if style
+          (style/render (elem :style) (elem :text))
+          (elem :text)
+        )
+      )
+      ""
+    ))
+  ))
+
+  (string buff)
+)
+
+(defn pane-display-title
+  [pane &opt &named style attached dimensions]
+  (default style true)
+
+  # (def title (cond
+  #   (nil? pane) "󰆢  empty"
+  #   (or (param/get :title :target pane) (cmd/title pane))
+  # ))
+  # (if (zero? (length title)) (break title))
+
+  (def title (or (param/get :title :target pane) @{}))
+  (def theme (param/get :theme :target pane))
+  (def attach-str (if attached "attached" "unattached"))
+
+  # when building the string to set as the title,
+  # must also style leading/trailing spaces,
+  # bare whitespace is automatically trimmed
+  # (def prefix (if (title :prefix)
+  #   (render-text-array
+  #     [" " ;(title :prefix)]
+  #     :style style
+  #     :default-style (theme (keyword "title-prefix-" attach-str))
+  #   )
+  # ))
+  (def prefix (case (type (title :prefix))
+    :nil nil
+    :string (if style
+      (style/render
+        (theme (keyword "title-prefix-" attach-str))
+        (string " " (title :prefix)))
+      (string " " (title :prefix))
+    )
+    (render-text-array
+      [" " ;(title :prefix)]
+      :style style
+      :default-style (theme (keyword "title-prefix-" attach-str))
+    )
+  ))
+
+  # (def body (render-text-array
+  #   [" " ;(or (title :body) [(cmd/title pane)]) " "]
+  #   :style style
+  #   :default-style (theme (keyword "title-body-" attach-str))
+  # ))
+
+  (def body (case (type (title :body))
+    :nil (if style
+      (style/render (theme (keyword "title-prefix-" attach-str)) (string " " (cmd/title pane) " "))
+      (string " " (cmd/title pane) " ")
+    )
+    :string (if style
+      (style/render
+        (theme (keyword "title-body-" attach-str))
+        (string " " (title :body) " "))
+      (string " " (title :body) " ")
+    )
+    (render-text-array
+      [" " ;(title :body) " "]
+      :style style
+      :default-style (theme (keyword "title-body-" attach-str))
+    )
+  ))
+
+  # (def postfix (if (title :postfix)
+  #   (string " " (render-text-array
+  #      # (style/render (theme (keyword "view-border-" attach-str)) "─") " "
+  #     (title :postfix)
+  #     :style style
+  #     :default-style (theme (keyword "title-postfix-" attach-str))
+  #   ))
+  # ))
+
+  (string prefix body)
+)
+
+(defn border-title
+  [dimensions node]
+
+  (pane-display-title (node :id) :attached (node :attached) :dimensions dimensions)
+)
+
+(defn border-fg
+  [node]
+
+  (if (layout/attached? node)
+    view-attached-border-fg
+    view-unattached-border-fg
+  )
+)
+
+(defn new-bordered-view
+  "Create a view with a border. Takes the node ID that should be in the view."
+  [node &opt &named attach]
+
+  (default attach false)
+
+  {
+    :type :borders
+    # :title (style/text " sample title  " :bg "#1F1F28" :bold true)
+    :title border-title
+    :border :rounded
+    :border-fg border-fg
+    :node {
+      :type :view
+      :id node
+      :attached attach
+    }
+  }
+)
+
+# pass :none for a key to set it to nil
+(defn set-title
+  [&opt &named body prefix postfix pane]
+
+  (default pane (pane/current))
+  (if pane (do
+    (def title (param/get :title :target pane))
+    (def need-persist (nil? title))
+    (default title @{})
+
+    (if prefix (put title :prefix (if (= :none prefix) nil prefix)))
+    (if body (put title :body (if (= :none body) nil body)))
+
+    (if need-persist (param/set pane :title title))
+    (layout/set (layout/get))
+  ))
+)

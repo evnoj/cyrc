@@ -6,8 +6,6 @@
 (def tab-inactive-bg "22")
 (def view-attached-border-fg "24")
 (def view-unattached-border-fg "25")
-(def stack-attached-border-fg "23")
-(def stack-unattached-border-fg "25")
 (def background "26")
 (def foreground "27")
 
@@ -76,25 +74,118 @@
 
 # ----- GENERAL CONFIG -----
 (defn hook/init []
-  (param/set (tree/id :root "/logs") :title "  cy log")
+  # (param/set (tree/id :root "/logs") :title "  cy log")
+  (param/set (tree/id :root "/logs") :title @{:body "  cy log"})
+
+  (def theme @{
+    :tab-active {
+      :bg "20"
+      :fg "21"
+    }
+    :tab-inactive {
+      :bg "22"
+      :fg "23"
+    }
+    :view-border-attached {
+      :fg "24"
+    }
+    :view-border-unattached {
+      :fg "25"
+    }
+    :title-prefix-attached {
+      :fg "26"
+      :bg "27"
+      :bold true
+    }
+    :title-prefix-unattached {
+      :fg "27"
+      :bg "26"
+      :bold true
+    }
+    :title-body-attached {
+      :fg "26"
+      :bg "27"
+      :bold true
+    }
+    :title-body-unattached {
+      :fg "27"
+      :bg "26"
+      :bold true  
+    }
+    :title-postfix-attached {
+      :fg "26"
+      :bg "27"
+      :bold true   
+    }
+    :title-postfix-unattached {
+      :fg "27"
+      :bg "26"
+      :bold true     
+    }
+  })
+  (param/set :root :theme theme)
 
   (layout/set (new-bordered-view (shell/new) :attach true))
 )
 
-# ----- USED VIA CY EXEC -----
-(defn set-title
-  [title]
-  (def pane (pane/current))
-  (if pane (do
-    (param/set pane :title title)
-    (layout/set (layout/get))
-  ))
-)
+# ----- THEMING -----
+# (color-maps/set :root :kanagawa)
+# (def theme "kanagawa")
 
-(defn get-title
-  []
-  (param/get :title :target (pane/current))
-)
+# (param/set :root :theme (eval-string (slurp (string (os/getenv "HOME") "/.config/cy/themes/") theme ".janet") (make-env)))
+# (def theme @{
+#   :tab-active {
+#     :bg "20"
+#     :fg "21"
+#   }
+#   :tab-inactive {
+#     :bg "22"
+#     :fg "23"
+#   }
+#   :view-border-attached {
+#     :fg "24"
+#   }
+#   :view-border-unattached {
+#     :fg "25"
+#   }
+#   :title-prefix-attached {
+#     :fg "26"
+#     :bg "27"
+#     :bold true
+#   }
+#   :title-prefix-unattached {
+#     :fg "27"
+#     :bg "26"
+#     :bold true
+#   }
+#   :title-body-attached {
+#     :fg "26"
+#     :bg "27"
+#     :bold true
+#   }
+#   :title-body-unattached {
+#     :fg "27"
+#     :bg "26"
+#     :bold true  
+#   }
+#   :title-postfix-attached {
+#     :fg "26"
+#     :bg "27"
+#     :bold true   
+#   }
+#   :title-postfix-unattached {
+#     :fg "27"
+#     :bg "26"
+#     :bold true     
+#   }
+# })
+# (param/set :root :theme theme)
+
+# ----- USED VIA CY EXEC -----
+# (defn get-title
+#   []
+#   (param/get :title :target (pane/current))
+# )
 
 # ----- KEYBINDS -----
 # use ctrl-m as prefix key instead of ctrl-a
