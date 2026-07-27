@@ -366,6 +366,14 @@
     )
   ))
 
+  (def bell (if (param/get :bell-rung :target pane)
+    (if style
+      (style/render (theme :title-bell) "  ")
+      "  "
+    )
+    ""
+  ))
+
   # (def postfix (if (title :postfix)
   #   (string " " (render-text-array
   #      # (style/render (theme (keyword "view-border-" attach-str)) "─") " "
@@ -375,12 +383,13 @@
   #   ))
   # ))
 
-  (string prefix body)
+  (string bell prefix body)
 )
 
 (defn border-title
   [dimensions node]
 
+  (if (node :attached) (param/set (node :id) :bell-rung false))
   (pane-display-title (node :id) :attached (node :attached) :dimensions dimensions)
 )
 

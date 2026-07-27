@@ -122,6 +122,10 @@
       :bg "26"
       :bold true     
     }
+    :title-bell {
+      :fg "3"
+      :bg "26"
+    }
   })
   (param/set :root :theme theme)
 
@@ -129,7 +133,11 @@
 )
 
 (defn hook/bell [pane]
-  (msg/toast :info (string "  from " (pane-display-title pane :style false))))
+  (when (not= (layout/attach-id (layout/get)) pane)
+    (msg/toast :info (string "  from " (pane-display-title pane :style false)))
+    (param/set pane :bell-rung true)
+  )
+)
 
 # ----- THEMING -----
 # (color-maps/set :root :kanagawa)
