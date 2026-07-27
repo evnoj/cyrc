@@ -128,6 +128,9 @@
   (layout/set (new-bordered-view (shell/new) :attach true))
 )
 
+(defn hook/bell [pane]
+  (msg/toast :info (string "  from " (pane-display-title pane :style false))))
+
 # ----- THEMING -----
 # (color-maps/set :root :kanagawa)
 # (def theme "kanagawa")
