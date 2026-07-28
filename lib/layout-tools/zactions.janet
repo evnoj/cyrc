@@ -44,8 +44,7 @@
   (def attach-id (layout/attach-id layout))
   (def layout (layout/remove-node layout attach-path))
 
-  # (def tabs-path (layout/find-last layout attach-path |(= ($ :type) :tabs)))
-  (layout/set (layout/new-tab layout (new-bordered-view attach-id) :attach true))
+  (layout/set (layout/new-tab layout (new-bordered-view attach-id :attach true) :attach true))
 )
 
 (defn
@@ -162,7 +161,7 @@
 
   (def layout (layout/get))
   (def attach-path (layout/attach-path layout))
-  (def parent-split-path (layout/find-last layout attach-path |(= ($ :type) :split)))
+  (def parent-split-path (layout/find-last layout attach-path |(layout/type? :split $)))
   (if (nil? parent-split-path) (break))
   (def parent-split (layout/path layout parent-split-path))
   (def attached-a (layout/attached? (parent-split :a)))
@@ -198,7 +197,7 @@
 
   (def layout (layout/get))
   (def attach-path (layout/attach-path layout))
-  (def parent-split-path (layout/find-last layout attach-path |(= ($ :type) :split)))
+  (def parent-split-path (layout/find-last layout attach-path |(layout/type? :split $)))
   (if (nil? parent-split-path) (break))
   (def parent-split (layout/path layout parent-split-path))
   (def attached-a (layout/attached? (parent-split :a)))
@@ -299,7 +298,7 @@
   "Create a new tab"
 
   (def layout (layout/get))
-  (layout/set (layout/new-tab layout (new-bordered-view (shell/new)) :attach true))
+  (layout/set (layout/new-tab layout (new-bordered-view (shell/new) :attach true) :attach true))
 )
 
 (key/action

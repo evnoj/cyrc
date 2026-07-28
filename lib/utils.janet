@@ -403,20 +403,20 @@
 )
 
 (defn new-bordered-view
-  "Create a view with a border. Takes the node ID that should be in the view."
-  [node &opt &named attach]
+  "Create a view with a border. Takes the pane ID that should be in the view."
+  [pane &opt &named attach]
 
   (default attach false)
 
   {
     :type :borders
     # :title (style/text " sample title  " :bg "#1F1F28" :bold true)
-    :title border-title
+    :title (pane-display-title pane :attached attach)
     :border :rounded
     :border-fg border-fg
     :node {
       :type :view
-      :id node
+      :id pane
       :attached attach
     }
   }
@@ -427,15 +427,42 @@
   [&opt &named body prefix postfix pane]
 
   (default pane (pane/current))
-  (if pane (do
-    (def title (param/get :title :target pane))
-    (def need-persist (nil? title))
-    (default title @{})
+  (if (or (nil? pane) (not (tree/pane? pane))) (break))
 
-    (if prefix (put title :prefix (if (= :none prefix) nil prefix)))
-    (if body (put title :body (if (= :none body) nil body)))
+  (def title (param/get :title :target pane))
+  (def need-persist (nil? title))
+  (default title @{})
 
-    (if need-persist (param/set pane :title title))
-    (layout/set (layout/get))
+  (if prefix (put title :prefix (if (= :none prefix) nil prefix)))
+  (if body (put title :body (if (= :none body) nil body)))
+
+  (if need-persist (param/set pane :title title))
+
+  (var layout (layout/get))
+  (def view-path (layout/find layout |(= ($ :id) pane)))
+  (if (nil? view-path) (break))
+  (def view (layout/path layout view-path))
+
+  (def border-path (layout/find-last layout view-path |(layout/type? :borders $)))
+  (when border-path
+    (def border (as?-> border-path x
+      (layout/path layout x)
+      (assoc x :title (pane-display-title pane :attached (view :attached)))
+    ))
+    (set layout (layout/assoc layout border-path border))
+  )
+
+  (def leaf-path (as?-> view-path x
+    (layout/find-last layout x |(layout/type? :stack $))
+    (array/slice view-path 0 (+ (length x) 2))
   ))
+  (when leaf-path
+    (def leaf (as?-> leaf-path x
+      (layout/path layout x)
+      (assoc x :title (pane-display-title pane :attached (view :attached)))
+    ))
+    (set layout (layout/assoc layout leaf-path leaf))
+  )
+
+  (layout/set layout)
 )

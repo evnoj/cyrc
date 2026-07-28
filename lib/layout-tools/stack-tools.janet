@@ -4,9 +4,7 @@ given a layout and a path, checks if that path is inside a stack, and if so, ret
 Assumes there are no nested stacks, simply returns the path to the last stack node it finds.
 ```
   [layout path]
-  (layout/find-last layout path |(
-    = (get $ :type) :stack
-  ))
+  (layout/find-last layout path |(layout/type? :stack $))
 )
 
 (defn stack-border-fg
@@ -23,6 +21,21 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
     view-attached-border-fg
     view-unattached-border-fg
   )
+)
+
+(defn restyle-leaf-title
+  ``
+  given a stack leaf, recompute its static :title to reflect the live :attached
+  state of the leaf's view. Used to keep leaf titles correct synchronously when
+  an action changes which leaf is attached (e.g. rotate), avoiding the flicker
+  from waiting on the async hook/attach to patch them.
+  ``
+  [leaf]
+  (def node (leaf :node))
+  (def view-path (layout/find node |(layout/type? :view $)))
+  (if (nil? view-path) (break leaf))
+  (def view (layout/path node view-path))
+  (assoc leaf :title (pane-display-title (view :id) :attached (view :attached)))
 )
 
 (defn layout/add-stacked-view
@@ -42,11 +55,9 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   (def node (layout/path layout path))
   (def new-leaf {
     :active attach
-    :title border-title
-    # :title "blorp"
-    # :border-fg "3"
+    :title (pane-display-title pane-id :attached attach)
     :border-fg border-fg
-      :node {
+    :node {
       :type :view
       :attached attach
       :id pane-id
@@ -70,7 +81,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
     (def leaves
       (map
         |(identity {
-          :title border-title
+          :title (pane-display-title ($ :id))
           :border-fg border-fg
           :node {
             :type :view
@@ -187,7 +198,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
                                       active-leaf))
   ))
 
-  (assoc stack :leaves leaves)
+  (assoc stack :leaves (if attach (map restyle-leaf-title leaves) leaves))
 )
 
 (key/action
@@ -258,7 +269,6 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   "given a stack node, get an array of the pane ids of its leaves"
   [stack]
   (map |(($ :node) :id) (stack :leaves))
-  # (map |((layout/path $ (layout/find $ |(= ($ :type) :view))) :id) (stack :leaves))
 )
 
 (defn layout/stack-from-panes
@@ -273,7 +283,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
 
   (def leaves (map |(break
     {
-      :title border-title
+      :title (pane-display-title $)
       :border-fg border-fg
       :node {
         :type :view
@@ -305,7 +315,6 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
   # if the attached pane is a child of a split, or is in a stack that is a child of a split, merge the two halves (which must each be either a pane or a stack) into a single stack, replacing the split with it. If the sibling of the attached pane is a split, will do nothing
   (def layout (layout/get))
   (def attach-path (layout/attach-path layout))
-  # (def parent-split-path (layout/find-last layout attach-path |(= ($ :type) :split)))
   (def parent-split-path (layout/find-last layout attach-path |(layout/type? :split $)))
   (if (nil? parent-split-path) (break))
 
@@ -318,7 +327,7 @@ Assumes there are no nested stacks, simply returns the path to the last stack no
     (if (layout/type? :stack node) (do
       (array/push panes ;(layout/get-stack-panes node))
     ) (do # child is a pane
-      (def pane (layout/path node (layout/find node |(= ($ :type) :view))))
+      (def pane (layout/path node (layout/find node |(layout/type? :view $))))
       (array/push panes (pane :id))
     ))
   )

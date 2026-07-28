@@ -136,7 +136,53 @@
   (when (not= (layout/attach-id (layout/get)) pane)
     (msg/toast :info (string "  from " (pane-display-title pane :style false)))
     (param/set pane :bell-rung true)
+
+    (def layout (layout/get))
+    (def view-path (layout/find layout |(= ($ :id) pane)))
+    (def tab-path (as?-> view-path x
+      (layout/find-last layout x |(layout/type? :tabs $))
+      (array/slice view-path 0 (+ (length x) 2))
+    ))
+    (when tab-path
+      (def tab (layout/path layout tab-path))
+      (var tab-name (tab :name))
+      (when (not (string/has-prefix? "  " tab-name))
+        (set tab-name (string "  " tab-name))
+        (layout/set (layout/assoc layout tab-path (assoc tab :name tab-name)))
+      )
+    )
+
   )
+)
+
+(defn hook/title [pane title]
+  (def title (param/get :title :target pane))
+  (when (nil? (title :body))
+    (set-title :pane pane)
+  )
+)
+
+(defn hook/attach [prev-pane attach-pane layout]
+  (def attach-path (layout/attach-path layout))
+  (when (param/get :bell-rung :target attach-pane)
+    (param/set attach-pane :bell-rung false)
+
+    (def tab-path (as?-> attach-path x
+      (layout/find-last layout x |(layout/type? :tabs $))
+      (array/slice attach-path 0 (+ (length x) 2))
+    ))
+    (when tab-path
+      (def tab (layout/path layout tab-path))
+      (var tab-name (tab :name))
+      (when (string/has-prefix? "  " tab-name)
+        (set tab-name (string/slice tab-name (length "  ")))
+        (layout/set (layout/assoc layout tab-path (assoc tab :name tab-name)))
+      )
+    )
+  )
+
+  (set-title :pane prev-pane)
+  (set-title :pane attach-pane)
 )
 
 # ----- THEMING -----

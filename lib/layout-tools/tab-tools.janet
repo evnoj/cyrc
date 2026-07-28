@@ -27,11 +27,15 @@
 
   (for i 0 (length tabs) (do
     (def tab (tabs i))
+    (var name (tab :name))
+    (def bell-rung (string/has-prefix? "  " name))
+    (when bell-rung
+      (set name (string/slice name (length "  ")))
+    )
     (if (scan-number (tab :name))
-      (put tabs i (assoc tab :name (string (+ i 1))))
+      (put tabs i (assoc tab :name (string (when bell-rung "  ") (+ i 1))))
     )
   ))
-
   tabs
 )
 
