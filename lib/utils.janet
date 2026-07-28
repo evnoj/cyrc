@@ -269,6 +269,21 @@
   (each binding bindings (pretty-log (describe (binding :function))))
 )
 
+(key/action
+  action/print-commands
+  "print the command state of the attached pane."
+
+  (def {:id id} (layout/path (layout/get) (layout/attach-path (layout/get))))
+  (def cmds (cmd/commands id))
+  (pretty-log
+    (string "n=" (length cmds) " last-pending=" (when (not (empty? cmds))
+      ((last cmds) :pending))
+    )
+  )
+)
+
+
+# ----- TITLE STUFF -----
 # title is derived from a param :title on a pane that is a table
 # the table has 3 fields: :prefix, :body, :postfix
 # the values of these tables are arrays

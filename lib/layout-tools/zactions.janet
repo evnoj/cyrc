@@ -35,6 +35,44 @@
   )
 )
 
+(defn pane-busy?
+  "Check if a program is running in the pane. Requires OSC 133 to be emitted by shell prompt to function properly."
+  [pane]
+
+  (def screen (pane/screen pane))
+  # if on alt screen, something is running
+  (when (screen :is-alt) (break true))
+
+  (def commands (cmd/commands pane))
+  # if there is a pending command, something is running
+  (and (not (empty? commands)) (truthy? ((last commands) :pending)))
+)
+
+(key/action
+  action/kill-attached-view-confirm
+  "Remove the attached view from the layout and kill its pane. If the pane is running a program, confirm before killing it."
+  (def layout (layout/get))
+  (def {:id id} (layout/path layout (layout/attach-path layout)))
+
+  (when (pane-busy? id)
+    (when (not (input/ok? "a program is running, kill this pane?"))
+      (break)
+    )
+  )
+  
+  (action/remove-attached-view)
+
+  (when (not (nil? id))
+    (def layout (layout/get))
+    (def still-exists-at (layout/find layout |(= ($ :id) id)))
+
+    (if still-exists-at
+      (msg/toast :info (string "Didn't kill pane " id ", still exists at:\n" (array-to-string still-exists-at :sep "")))
+      (tree/rm id)
+    )
+  )
+)
+
 (key/action
   action/break-view-new-tab
   "break the attached view into a new tab"

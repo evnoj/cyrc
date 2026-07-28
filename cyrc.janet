@@ -136,7 +136,9 @@
   (when (not= (layout/attach-id (layout/get)) pane)
     (msg/toast :info (string "  from " (pane-display-title pane :style false)))
     (param/set pane :bell-rung true)
+    (set-title :pane pane)
 
+    # set tab bell icon
     (def layout (layout/get))
     (def view-path (layout/find layout |(= ($ :id) pane)))
     (def tab-path (as?-> view-path x
@@ -288,7 +290,7 @@
 (key/bind :root ["ctrl+alt+shift+n"] action/add-stacked-view-empty)
 
 (key/bind :root ["ctrl+alt+d"] action/remove-attached-view)
-(key/bind :root ["ctrl+alt+x"] action/kill-attached-view)
+(key/bind :root ["ctrl+alt+x"] action/kill-attached-view-confirm)
 
 # for intial compatibility while I transition from zellij
 # (key/bind :root ["f1"] action/focus-left)
