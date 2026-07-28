@@ -39,6 +39,8 @@
   "Check if a program is running in the pane. Requires OSC 133 to be emitted by shell prompt to function properly."
   [pane]
 
+  (if (nil? pane) (break false))
+
   (def screen (pane/screen pane))
   # if on alt screen, something is running
   (when (screen :is-alt) (break true))

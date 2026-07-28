@@ -278,7 +278,7 @@
 (key/bind :root ["ctrl+alt+shift+,"] action/move-tab-left)
 (key/bind :root ["ctrl+alt+shift+."] action/move-tab-right)
 (key/bind :root ["ctrl+alt+b"] action/break-view-new-tab)
-(key/bind :root ["ctrl+alt+a"] action/jump-pane)
+(key/bind :root ["ctrl+alt+a"] action/jump-pane-by-title)
 (key/bind :root [prefix-key "r"] action/rename-tab)
 
 (key/bind :root ["ctrl+alt+u"] action/rotate-stack-backward)
