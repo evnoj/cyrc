@@ -328,7 +328,7 @@
     :bg "18"
     :fg "19"
   }
-  # :animate false
+  :animate false
   :data-directory ""
   :use-system-clipboard true
 )

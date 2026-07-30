@@ -322,6 +322,8 @@
   [pane &opt &named style attached dimensions]
   (default style true)
 
+  (if (or (nil? pane) (not (tree/pane? pane))) (break))
+
   # (def title (cond
   #   (nil? pane) "󰆢  empty"
   #   (or (param/get :title :target pane) (cmd/title pane))

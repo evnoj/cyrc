@@ -24,7 +24,7 @@
   (def {:id id} (layout/path layout (layout/attach-path layout)))
   (action/remove-attached-view)
 
-  (when (not (nil? id))
+  (when (not (or (nil? id) (= id (tree/id :root "/logs"))))
     (def layout (layout/get))
     (def still-exists-at (layout/find layout |(= ($ :id) id)))
 
@@ -64,7 +64,7 @@
   
   (action/remove-attached-view)
 
-  (when (not (nil? id))
+  (when (not (or (nil? id) (= id (tree/id :root "/logs"))))
     (def layout (layout/get))
     (def still-exists-at (layout/find layout |(= ($ :id) id)))
 
