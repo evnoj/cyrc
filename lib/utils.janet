@@ -441,7 +441,7 @@
 
 # pass :none for a key to set it to nil
 (defn set-title
-  [&opt &named body prefix postfix pane]
+  [&opt &named body prefix postfix pane layout]
 
   (default pane (pane/current))
   (if (or (nil? pane) (not (tree/pane? pane))) (break))
@@ -455,7 +455,9 @@
 
   (if need-persist (param/set pane :title title))
 
-  (var layout (layout/get))
+  # need to know if a layout was passed, we don't do layout/set if it was
+  (def layout-passed (not (nil? layout)))
+  (var layout (or layout (layout/get)))
   (def view-path (layout/find layout |(= ($ :id) pane)))
   (if (nil? view-path) (break))
   (def view (layout/path layout view-path))
@@ -481,5 +483,8 @@
     (set layout (layout/assoc layout leaf-path leaf))
   )
 
-  (layout/set layout)
+  (if layout-passed
+    layout
+    (layout/set layout)
+  )
 )

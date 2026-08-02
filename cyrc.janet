@@ -166,25 +166,27 @@
 
 (defn hook/attach [prev-pane attach-pane layout]
   (def attach-path (layout/attach-path layout))
-  (when (param/get :bell-rung :target attach-pane)
+  (def layout (or (when (param/get :bell-rung :target attach-pane)
     (param/set attach-pane :bell-rung false)
 
     (def tab-path (as?-> attach-path x
       (layout/find-last layout x |(layout/type? :tabs $))
       (array/slice attach-path 0 (+ (length x) 2))
     ))
-    (when tab-path
+    (or (when tab-path
       (def tab (layout/path layout tab-path))
       (var tab-name (tab :name))
-      (when (string/has-prefix? "  " tab-name)
+      (or (when (string/has-prefix? "  " tab-name)
         (set tab-name (string/slice tab-name (length "  ")))
-        (layout/set (layout/assoc layout tab-path (assoc tab :name tab-name)))
-      )
-    )
-  )
+        (layout/assoc layout tab-path (assoc tab :name tab-name))
+      ) layout)
+    ) layout)
+  ) layout))
 
-  (set-title :pane prev-pane)
-  (set-title :pane attach-pane)
+  (layout/set (as-> layout _
+    (set-title :pane attach-pane :layout _)
+    (or (set-title :pane prev-pane :layout _) _)
+  ))
 )
 
 # ----- THEMING -----
