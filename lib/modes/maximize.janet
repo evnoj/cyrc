@@ -10,12 +10,11 @@
     bar-text
     [[rows cols] layout]
     (def node (layout/attach-id layout))
-    (def name (or (param/get :title :target node) "detached"))
+    (def name (or (pane-display-title node :style false) "detached"))
     (def fg "22")
     (def bg "136")
 
     (string
-      " "
       (style/text
         (pad-between (string " " name) "maximized" (+ cols 2))
         :bg foreground
