@@ -13,6 +13,7 @@
   "ctrl+enter" "\x1b[1;5y"
   "shift+backspace" "\x1b[1;6y"
   "ctrl+backspace" "\x1b[1;7y"
+  "shift+space" "\x1b[1;8y"
   "shift+alt+left" "\x1b[2;1y"
   "shift+alt+right" "\x1b[2;2y"
   "shift+alt+up" "\x1b[2;3y"

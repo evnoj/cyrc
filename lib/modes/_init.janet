@@ -90,7 +90,7 @@
   )
 
   # change bindings
-  (def current-bindings (key/current))
+  (def current-bindings (key/get :root))
   (param/set :client :restore-bindings current-bindings)
 
   (when unbind-keys
