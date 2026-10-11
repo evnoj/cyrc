@@ -133,7 +133,7 @@
 )
 
 (defn hook/bell [pane]
-  (when (not= (layout/attach-id (layout/get)) pane)
+  (when (and (tree/pane? pane) (not= (layout/attach-id (layout/get)) pane))
     (msg/toast :info (string "  from " (pane-display-title pane :style false)))
     (param/set pane :bell-rung true)
     (set-title :pane pane)
@@ -158,9 +158,11 @@
 )
 
 (defn hook/title [pane title]
-  (def title (param/get :title :target pane))
-  (when (nil? (title :body))
-    (set-title :pane pane)
+  (when (tree/pane? pane)
+    (def title (param/get :title :target pane))
+    (when (nil? (title :body))
+      (set-title :pane pane)
+    )
   )
 )
 
