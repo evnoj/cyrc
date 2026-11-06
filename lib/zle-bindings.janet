@@ -21,6 +21,8 @@
   "shift+alt+h" "\x1b[104;4u"
   "shift+alt+l" "\x1b[108;4u"
   "ctrl+s" "\x1b[115;5u"
+  "ctrl+/" "\x1f" # cy drops ctrl when re-encoding kitty's ctrl+/ for legacy apps, send ^_ for fzf_completion
+  # "escape" "\x1b[1;88y"
 })
 
 (key/action
